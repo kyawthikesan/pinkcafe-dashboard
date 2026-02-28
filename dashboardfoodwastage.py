@@ -1,9 +1,15 @@
 # dashboardfoodwastage.py
-# Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Manager/Staff roles + Sales entry)
+# Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Manager/Staff roles + Sales entry + Edit/Delete for manager)
 #
-# What you need in the project folder:
-#   - dashboardfoodwastage.py  (this file)
-#   - product_prices.csv       (teacher-provided prices; auto-template created if missing)
+# Streamlit 1.54 dropdown menus can render with invisible text on some setups.
+# This version avoids dropdown-based widgets for critical selections:
+# - Product picker: radio list (always visible)
+# - Manager filters: radio lists
+# - Delete selection: checkbox list (not multiselect dropdown)
+#
+# Files in folder:
+#   - dashboardfoodwastage.py
+#   - product_prices.csv   (auto-template created if missing)
 #
 # Predictions page expects TWO CSV uploads:
 #   1) Coffee CSV: "Pink CoffeeSales March - Oct 2025.csv"  (weird first-row product names)
@@ -40,7 +46,6 @@ PRICE_FILE = Path("product_prices.csv")
 SALES_LOG = Path("sales_entries.csv")
 
 # Demo users (replace later with secrets/hashes if needed)
-# username is case-insensitive
 DEMO_USERS = {
     "manager": {"password": "manager123", "role": "manager"},
     "staff": {"password": "staff123", "role": "staff"},
@@ -48,26 +53,21 @@ DEMO_USERS = {
 
 
 # ----------------------------
-# BLACKPINK Theme (higher contrast + more professional)
+# BLACKPINK Theme (keeps style; removes top white gap)
 # ----------------------------
 def inject_blackpink_theme() -> None:
     st.markdown(
         """
         <style>
-        /* ---------- Blackpink Pro Palette ---------- */
         :root{
             --bp-bg: #06060A;
             --bp-bg-2: #0A0A10;
-
-            --bp-surface: rgba(255,255,255,0.06);
-            --bp-surface-2: rgba(255,255,255,0.09);
 
             --bp-border: rgba(255,105,180,0.22);
             --bp-border-strong: rgba(255,105,180,0.40);
 
             --bp-text: #F6F1F7;
             --bp-text-dim: rgba(246,241,247,0.78);
-            --bp-text-mute: rgba(246,241,247,0.62);
 
             --bp-pink: #ff69b4;
             --bp-pink-2: #ff2d95;
@@ -77,7 +77,20 @@ def inject_blackpink_theme() -> None:
             --bp-radius-sm: 12px;
         }
 
-        /* ---------- App background + base type ---------- */
+        /* Remove Streamlit header gap / toolbar */
+        header[data-testid="stHeader"]{
+            background: transparent !important;
+            height: 0px !important;
+            border-bottom: none !important;
+        }
+        div[data-testid="stToolbar"]{
+            visibility: hidden !important;
+            height: 0px !important;
+        }
+        #MainMenu { visibility: hidden !important; }
+        footer { visibility: hidden !important; }
+        .block-container { padding-top: 1rem !important; padding-bottom: 2.6rem !important; }
+
         .stApp {
             background:
                 radial-gradient(1000px 700px at 20% 0%, rgba(255,105,180,0.10) 0%, rgba(255,105,180,0.0) 62%),
@@ -91,33 +104,15 @@ def inject_blackpink_theme() -> None:
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
         }
 
-        /* Layout spacing polish */
-        .block-container { padding-top: 1.1rem; padding-bottom: 2.6rem; }
+        h1, h2, h3, h4 { color: var(--bp-pink) !important; }
+        p, li, label, .stMarkdown, .stCaption { color: var(--bp-text-dim) !important; }
 
-        /* ---------- Headings ---------- */
-        h1, h2, h3, h4 {
-            color: var(--bp-pink) !important;
-            letter-spacing: 0.2px;
-        }
-        p, li, label, .stMarkdown, .stCaption {
-            color: var(--bp-text-dim) !important;
-        }
-
-        /* ---------- Sidebar ---------- */
         section[data-testid="stSidebar"]{
             background: linear-gradient(180deg, var(--bp-bg-2) 0%, #050508 100%);
             border-right: 1px solid var(--bp-border);
         }
-        section[data-testid="stSidebar"] *{
-            color: var(--bp-text) !important;
-        }
-        section[data-testid="stSidebar"] .stRadio label,
-        section[data-testid="stSidebar"] .stSelectbox label,
-        section[data-testid="stSidebar"] .stDateInput label {
-            color: var(--bp-text-dim) !important;
-        }
+        section[data-testid="stSidebar"] *{ color: var(--bp-text) !important; }
 
-        /* ---------- Cards / panels ---------- */
         .bp-card {
             background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.04) 100%);
             border: 1px solid var(--bp-border);
@@ -126,15 +121,12 @@ def inject_blackpink_theme() -> None:
             box-shadow: var(--bp-shadow);
             backdrop-filter: blur(10px);
         }
-
-        /* Premium badge: less “bubble”, more “label” */
         .bp-badge {
             display: inline-block;
             padding: 6px 12px;
             border-radius: 999px;
             border: 1px solid rgba(255,105,180,0.38);
-            background:
-                linear-gradient(180deg, rgba(255,105,180,0.14) 0%, rgba(0,0,0,0.10) 100%);
+            background: linear-gradient(180deg, rgba(255,105,180,0.14) 0%, rgba(0,0,0,0.10) 100%);
             color: rgba(246,241,247,0.92);
             font-size: 11px;
             font-weight: 800;
@@ -143,13 +135,6 @@ def inject_blackpink_theme() -> None:
             margin-bottom: 12px;
         }
 
-        .bp-divider {
-            height: 1px;
-            background: rgba(255,105,180,0.18);
-            margin: 14px 0;
-        }
-
-        /* ---------- Buttons (covers st.button AND st.form_submit_button) ---------- */
         .stButton > button,
         button[kind="primary"],
         button[kind="secondary"],
@@ -160,61 +145,19 @@ def inject_blackpink_theme() -> None:
             border-radius: 14px !important;
             padding: 0.62rem 1.05rem !important;
             font-weight: 900 !important;
-            letter-spacing: 0.2px !important;
             box-shadow: 0 10px 26px rgba(255,45,149,0.14) !important;
-            transition: transform 120ms ease, filter 120ms ease !important;
         }
 
-        .stButton > button:hover,
-        button[kind="primary"]:hover,
-        button[kind="secondary"]:hover,
-        div[data-testid="stForm"] button:hover {
-            filter: brightness(1.05) !important;
-            transform: translateY(-1px) !important;
-        }
-
-        .stButton > button:disabled,
-        button[kind="primary"]:disabled,
-        button[kind="secondary"]:disabled,
-        div[data-testid="stForm"] button:disabled {
-            opacity: 0.55 !important;
-            cursor: not-allowed !important;
-            transform: none !important;
-        }
-
-        /* ---------- Inputs: dark + readable + consistent ---------- */
         .stTextInput input,
         .stNumberInput input,
         .stDateInput input,
-        .stTextArea textarea,
-        div[data-baseweb="select"] > div {
+        .stTextArea textarea {
             background: rgba(10,10,15,0.72) !important;
             color: var(--bp-text) !important;
             border: 1px solid rgba(255,255,255,0.10) !important;
             border-radius: var(--bp-radius-sm) !important;
         }
 
-        .stTextInput input::placeholder,
-        .stTextArea textarea::placeholder {
-            color: rgba(246,241,247,0.44) !important;
-        }
-
-        .stTextInput input:focus,
-        .stNumberInput input:focus,
-        .stDateInput input:focus,
-        .stTextArea textarea:focus,
-        div[data-baseweb="select"] > div:focus-within {
-            outline: none !important;
-            border: 1px solid var(--bp-border-strong) !important;
-            box-shadow: 0 0 0 3px rgba(255,105,180,0.16) !important;
-        }
-
-        /* ---------- Radio / Checkbox ---------- */
-        div[role="radiogroup"] label, .stCheckbox label{
-            color: var(--bp-text-dim) !important;
-        }
-
-        /* ---------- Alerts ---------- */
         div[data-testid="stAlert"]{
             border-radius: var(--bp-radius);
             border: 1px solid rgba(255,255,255,0.10);
@@ -222,27 +165,16 @@ def inject_blackpink_theme() -> None:
             color: var(--bp-text) !important;
         }
 
-        /* ---------- Dataframes / tables (best-effort across Streamlit builds) ---------- */
         .stDataFrame, div[data-testid="stDataFrame"] {
             border-radius: var(--bp-radius);
             border: 1px solid rgba(255,255,255,0.10);
             overflow: hidden;
         }
-        div[data-testid="stDataFrame"] * {
-            color: var(--bp-text) !important;
-        }
+        div[data-testid="stDataFrame"] * { color: var(--bp-text) !important; }
         div[data-testid="stDataFrame"] thead tr th {
             background: rgba(255,105,180,0.10) !important;
             border-bottom: 1px solid var(--bp-border) !important;
         }
-        div[data-testid="stDataFrame"] tbody tr:hover td{
-            background: rgba(255,105,180,0.06) !important;
-        }
-
-        /* ---------- Links ---------- */
-        a, a:visited { color: rgba(255,182,217,0.95) !important; }
-        a:hover { color: var(--bp-pink) !important; }
-
         </style>
         """,
         unsafe_allow_html=True,
@@ -263,54 +195,14 @@ def render_pink_header(title: str, subtitle: str) -> None:
     st.write("")
 
 
-# ----------------------------
-# Chart helpers
-# ----------------------------
-def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"])
-    df["day"] = df["date"].dt.date
-    df["week"] = df["date"].dt.to_period("W").astype(str)
-    df["month"] = df["date"].dt.to_period("M").astype(str)
-    df["weekday"] = df["date"].dt.day_name()
-    return df
-
-
 def moving_average(s: pd.Series, window: int = 7) -> pd.Series:
     s = s.sort_index()
     return s.rolling(window=window, min_periods=max(1, window // 2)).mean()
 
 
-def friendly_kpi_help(title: str, text: str) -> None:
-    st.markdown(
-        f"""
-        <div class="bp-card" style="padding:16px; background: linear-gradient(180deg, rgba(255,105,180,0.10) 0%, rgba(255,255,255,0.05) 100%);">
-            <div class="bp-badge">{title}</div>
-            <div style="color: rgba(246,241,247,0.78); line-height:1.5;">{text}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.write("")
-
-
-def chart_section_title(title: str, subtitle: str) -> None:
-    st.markdown(f"## {title}")
-    st.caption(subtitle)
-    st.write("")
-
-
 def make_pred_band(pred: pd.Series, recent_actual: pd.Series) -> pd.DataFrame:
-    """
-    Friendly 'range' band using recent variability (NOT a statistical confidence interval).
-    """
     recent = recent_actual.dropna().tail(21)
-    if len(recent) < 5:
-        spread = 0.0
-    else:
-        spread = float(recent.std())
-
+    spread = float(recent.std()) if len(recent) >= 5 else 0.0
     lower = (pred - spread).clip(lower=0)
     upper = (pred + spread).clip(lower=0)
     return pd.DataFrame({"predicted": pred, "lower": lower, "upper": upper})
@@ -320,11 +212,6 @@ def make_pred_band(pred: pd.Series, recent_actual: pd.Series) -> pd.DataFrame:
 # Auth (simple, demo)
 # ----------------------------
 def login_gate() -> bool:
-    """
-    Demo login gate:
-    - Stores logged_in, username, role in st.session_state
-    - Uses DEMO_USERS dict (change later if needed)
-    """
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
         st.session_state.username = None
@@ -356,8 +243,7 @@ def login_gate() -> bool:
             else:
                 st.error("Invalid username or password.")
 
-        st.markdown('<div class="bp-divider"></div>', unsafe_allow_html=True)
-        st.caption("Demo accounts (change later): manager/manager123 and staff/staff123")
+        st.caption("Demo accounts: manager/manager123 and staff/staff123")
         st.markdown("</div>", unsafe_allow_html=True)
 
     return False
@@ -377,12 +263,8 @@ def logout_button() -> None:
 def ensure_price_file_template() -> None:
     if PRICE_FILE.exists():
         return
-
     template = pd.DataFrame(
-        {
-            "product": ["Cappuccino", "Americano", "Croissant"],
-            "unit_price": [3.50, 3.00, 2.20],
-        }
+        {"product": ["Cappuccino", "Americano", "Croissant"], "unit_price": [3.50, 3.00, 2.20]}
     )
     template.to_csv(PRICE_FILE, index=False)
 
@@ -403,10 +285,6 @@ def load_price_map() -> Dict[str, float]:
 
 
 def save_sales_log(df: pd.DataFrame) -> None:
-    """
-    Writes the full sales log back to disk.
-    Keeps storage columns (not computed 'total').
-    """
     cols = ["entry_id", "date", "product", "qty", "unit_price", "staff_user", "created_at"]
     out = df.copy()
     for c in cols:
@@ -417,9 +295,6 @@ def save_sales_log(df: pd.DataFrame) -> None:
 
 
 def append_sale(row: dict) -> None:
-    """
-    Appends one sale with a unique entry_id.
-    """
     row = dict(row)
     row["entry_id"] = row.get("entry_id") or str(uuid.uuid4())
     df = pd.DataFrame([row])
@@ -435,25 +310,19 @@ def load_sales_log() -> pd.DataFrame:
         return pd.DataFrame(columns=storage_cols + ["total"])
 
     df = pd.read_csv(SALES_LOG)
-
-    # Backwards compat: add missing columns
     for c in storage_cols:
         if c not in df.columns:
             df[c] = np.nan
 
-    # If older file has no IDs, generate and persist once
     df["entry_id"] = df["entry_id"].astype(object)
     mask = df["entry_id"].isna() | (df["entry_id"].astype(str).str.strip() == "")
     if mask.any():
         df.loc[mask, "entry_id"] = [str(uuid.uuid4()) for _ in range(int(mask.sum()))]
         save_sales_log(df)
 
-    # Types
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
     df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(0.0)
-
-    # Computed
     df["total"] = df["qty"] * df["unit_price"]
     return df
 
@@ -468,7 +337,6 @@ def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def parse_date_series(s: pd.Series) -> pd.Series:
-    # UK-style (dd/mm/yyyy)
     return pd.to_datetime(s, dayfirst=True, errors="coerce")
 
 
@@ -497,28 +365,6 @@ def load_coffee_weird_layout(uploaded_file) -> pd.DataFrame:
         df.columns = ["Date"] + product_names
         df = df.iloc[1:].copy()
     else:
-        lower_cols = [c.lower().strip() for c in df.columns]
-        if "product" in lower_cols and any(x in lower_cols for x in ["number sold", "units_sold", "units sold", "sold"]):
-            colmap = {}
-            for c in df.columns:
-                cl = c.lower().strip()
-                if cl == "date":
-                    colmap[c] = "Date"
-                elif cl == "product":
-                    colmap[c] = "Product"
-                elif cl in ["number sold", "units_sold", "units sold", "sold"]:
-                    colmap[c] = "Number Sold"
-            df = df.rename(columns=colmap)
-
-            df["Date"] = parse_date_series(df["Date"])
-            df["Number Sold"] = pd.to_numeric(df["Number Sold"], errors="coerce")
-            df = df.dropna(subset=["Date"])
-
-            out = df[["Date", "Product", "Number Sold"]].copy()
-            out.columns = ["date", "product", "units_sold"]
-            out["product"] = out["product"].astype(str).str.strip()
-            return out
-
         raise ValueError("Coffee file format not recognised.")
 
     df["Date"] = parse_date_series(df["Date"])
@@ -619,30 +465,21 @@ def linear_regression_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> 
 
 
 def make_rf_features(series: pd.Series) -> pd.DataFrame:
-    """
-    Build supervised learning features from a daily time series.
-    Uses lagged values + rolling means + calendar features.
-    """
     s = series.copy()
     s.index = pd.to_datetime(s.index)
     s = s.asfreq("D").fillna(0)
 
     df = pd.DataFrame({"y": s})
-
-    # Lags
     for lag in [1, 2, 3, 7, 14]:
         df[f"lag_{lag}"] = df["y"].shift(lag)
 
-    # Rolling means based on previous days (shift 1 so we don't peek at same-day y)
     df["roll_mean_7"] = df["y"].shift(1).rolling(7).mean()
     df["roll_mean_14"] = df["y"].shift(1).rolling(14).mean()
 
-    # Calendar features
     df["dow"] = df.index.dayofweek
     df["is_weekend"] = (df["dow"] >= 5).astype(int)
     df["day_of_month"] = df.index.day
     df["month"] = df.index.month
-
     return df.dropna()
 
 
@@ -651,11 +488,9 @@ def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tupl
         return simple_forecast(series, days), {"ok": False, "reason": "scikit-learn not installed"}
 
     s = series.dropna()
-    # RF needs more history to learn lags/weekly patterns
     if len(s) < 30:
         return simple_forecast(series, days), {"ok": False, "reason": "not enough data (need ~30+ days)"}
 
-    # Ensure daily and fill gaps
     s = s.copy()
     s.index = pd.to_datetime(s.index)
     s = s.asfreq("D").fillna(0)
@@ -667,16 +502,10 @@ def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tupl
     X = df.drop(columns=["y"])
     y = df["y"].astype(float)
 
-    model = RandomForestRegressor(
-        n_estimators=400,
-        random_state=42,
-        min_samples_leaf=2,
-        n_jobs=-1,
-    )
+    model = RandomForestRegressor(n_estimators=400, random_state=42, min_samples_leaf=2, n_jobs=-1)
     model.fit(X, y)
     r2 = float(model.score(X, y))
 
-    # Recursive multi-step forecast
     current = s.copy()
     last_date = current.index.max()
     preds = []
@@ -686,7 +515,6 @@ def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tupl
 
     for i in range(1, days + 1):
         next_date = last_date + pd.Timedelta(days=i)
-
         prev_7 = current.loc[(next_date - pd.Timedelta(days=7)) : (next_date - pd.Timedelta(days=1))]
         prev_14 = current.loc[(next_date - pd.Timedelta(days=14)) : (next_date - pd.Timedelta(days=1))]
 
@@ -704,10 +532,8 @@ def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tupl
             "month": int(next_date.month),
         }
 
-        X_next = pd.DataFrame([row])
-        y_next = float(model.predict(X_next)[0])
+        y_next = float(model.predict(pd.DataFrame([row]))[0])
         y_next = max(0.0, y_next)
-
         preds.append(y_next)
         current.loc[next_date] = y_next
 
@@ -720,37 +546,38 @@ def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tupl
 # Pages
 # ----------------------------
 def page_staff_record_sale() -> None:
-    render_pink_header("Staff • Record Sales", "Enter sales. Unit price is fixed from the price list.")
+    render_pink_header("Staff • Record Sales", "Enter sales. Product list is always visible (no dropdown).")
 
     price_map = load_price_map()
     products = list(price_map.keys())
 
-    st.info(
-        "Prices come from product_prices.csv. If you need to update prices, ask a manager to edit the CSV.",
-        icon=None,
-    )
+    st.info("Prices come from product_prices.csv. If you need to update prices, ask a manager.", icon=None)
 
     with st.form("sale_form"):
         d = st.date_input("Date", value=date.today())
-        product = st.selectbox("Product", products)
+
+        # ✅ No dropdown: always visible options
+        product = st.radio("Product", products, index=0)
+
         unit_price = float(price_map[product])
-
         st.text_input("Unit price", value=f"£{unit_price:.2f}", disabled=True)
-        qty = st.number_input("Quantity sold", min_value=1, step=1, value=1)
 
+        qty = st.number_input("Quantity sold", min_value=1, step=1, value=1)
         submitted = st.form_submit_button("Save")
 
     if submitted:
-        row = {
-            "date": str(d),
-            "product": product,
-            "qty": int(qty),
-            "unit_price": float(unit_price),
-            "staff_user": st.session_state.username,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        append_sale(row)
+        append_sale(
+            {
+                "date": str(d),
+                "product": product,
+                "qty": int(qty),
+                "unit_price": float(unit_price),
+                "staff_user": st.session_state.username,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
         st.success("Saved.")
+        st.rerun()
 
     st.write("")
     st.subheader("Recent entries")
@@ -774,7 +601,7 @@ def page_manager_sales_overview() -> None:
         st.info("No sales recorded yet.")
         return
 
-    df = df.dropna(subset=["date"])
+    df = df.dropna(subset=["date"]).copy()
     df["day"] = df["date"].dt.date
 
     c1, c2, c3 = st.columns(3)
@@ -783,39 +610,16 @@ def page_manager_sales_overview() -> None:
     c3.metric("Transactions", int(len(df)))
 
     st.write("")
-
     revenue_daily = df.groupby("day")["total"].sum().sort_index()
-    rev_ma7 = moving_average(revenue_daily, 7)
-
-    chart_section_title(
-        "Revenue by day",
-        "Bars show revenue per day. The line shows the 7-day average.",
-    )
     st.bar_chart(pd.DataFrame({"Daily revenue": revenue_daily}))
-    st.line_chart(pd.DataFrame({"7-day average": rev_ma7}))
-
-    chart_section_title(
-        "Weekly revenue",
-        "Total revenue grouped by week.",
-    )
-    weekly_rev = df.groupby(df["date"].dt.to_period("W"))["total"].sum()
-    weekly_rev.index = weekly_rev.index.astype(str)
-    st.bar_chart(weekly_rev)
-
-    st.write("")
-    st.subheader("Units by day")
-    units_daily = df.groupby("day")["qty"].sum().sort_index()
-    units_ma7 = moving_average(units_daily, 7)
-    st.bar_chart(pd.DataFrame({"Daily units": units_daily}))
-    st.line_chart(pd.DataFrame({"7-day average": units_ma7}))
+    st.line_chart(pd.DataFrame({"7-day average": moving_average(revenue_daily, 7)}))
 
     st.subheader("Top products by revenue")
-    by_prod = df.groupby("product")["total"].sum().sort_values(ascending=False)
-    st.bar_chart(by_prod)
+    st.bar_chart(df.groupby("product")["total"].sum().sort_values(ascending=False))
 
 
 def page_manager_sales_records() -> None:
-    render_pink_header("Manager • Sales Records", "Filter, review, edit, and delete entries.")
+    render_pink_header("Manager • Sales Records", "Filter, review, edit, and delete entries. Filters are visible lists.")
 
     df = load_sales_log()
     if df.empty:
@@ -826,12 +630,14 @@ def page_manager_sales_records() -> None:
     df["day"] = df["date"].dt.date
 
     with st.sidebar:
-        st.markdown("### Filters")
+        st.markdown("### Filters (no dropdowns)")
+
         products = ["(All)"] + sorted(df["product"].dropna().unique().tolist())
         staff_users = ["(All)"] + sorted(df["staff_user"].dropna().unique().tolist())
 
-        f_product = st.selectbox("Product", products)
-        f_staff = st.selectbox("Staff user", staff_users)
+        # ✅ No dropdowns: always visible
+        f_product = st.radio("Product", products, index=0)
+        f_staff = st.radio("Staff user", staff_users, index=0)
 
         dmin = df["day"].min()
         dmax = df["day"].max()
@@ -842,12 +648,9 @@ def page_manager_sales_records() -> None:
         out = out[out["product"] == f_product]
     if f_staff != "(All)":
         out = out[out["staff_user"] == f_staff]
-
     out = out[(out["day"] >= d_from) & (out["day"] <= d_to)]
 
     st.subheader("Edit entries")
-    st.caption("Edits apply to the saved log. Unit price changes affect revenue totals.")
-
     editable_cols = ["entry_id", "date", "product", "qty", "unit_price", "staff_user", "created_at"]
     view = out[editable_cols].copy()
     view["date"] = pd.to_datetime(view["date"], errors="coerce").dt.date
@@ -856,81 +659,64 @@ def page_manager_sales_records() -> None:
         view,
         use_container_width=True,
         hide_index=True,
-        disabled=["entry_id", "created_at"],  # lock stable ID + created timestamp
+        disabled=["entry_id", "created_at"],
         column_config={
-            "entry_id": st.column_config.TextColumn("Entry ID"),
             "date": st.column_config.DateColumn("Date"),
-            "product": st.column_config.TextColumn("Product"),
             "qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
             "unit_price": st.column_config.NumberColumn("Unit price (£)", min_value=0.0, step=0.05, format="%.2f"),
-            "staff_user": st.column_config.TextColumn("Staff user"),
-            "created_at": st.column_config.TextColumn("Created at"),
         },
         key="manager_editor",
     )
 
-    c1, c2, c3 = st.columns([1, 1, 2])
+    if st.button("Save edits"):
+        edited2 = edited.copy()
+        edited2["date"] = pd.to_datetime(edited2["date"], errors="coerce")
+        if edited2["date"].isna().any():
+            st.error("One or more edited rows have an invalid date.")
+            st.stop()
 
-    with c1:
-        if st.button("Save edits"):
-            try:
-                edited2 = edited.copy()
+        edited2["qty"] = pd.to_numeric(edited2["qty"], errors="coerce").fillna(0).astype(int)
+        edited2["unit_price"] = pd.to_numeric(edited2["unit_price"], errors="coerce").fillna(0.0)
 
-                edited2["date"] = pd.to_datetime(edited2["date"], errors="coerce")
-                if edited2["date"].isna().any():
-                    st.error("One or more edited rows have an invalid date.")
-                    st.stop()
+        master = df.drop(columns=["day"], errors="ignore").copy()
+        master_index = master.set_index("entry_id")
+        patch = edited2.set_index("entry_id")
 
-                edited2["qty"] = pd.to_numeric(edited2["qty"], errors="coerce").fillna(0).astype(int)
-                edited2["unit_price"] = pd.to_numeric(edited2["unit_price"], errors="coerce").fillna(0.0)
+        for col in ["date", "product", "qty", "unit_price", "staff_user"]:
+            master_index.loc[patch.index, col] = patch[col]
 
-                master = df.drop(columns=["day"], errors="ignore").copy()
-                master_index = master.set_index("entry_id")
-
-                patch = edited2.set_index("entry_id")
-                for col in ["date", "product", "qty", "unit_price", "staff_user"]:
-                    master_index.loc[patch.index, col] = patch[col]
-
-                master = master_index.reset_index()
-                save_sales_log(master)
-
-                st.success("Saved edits to sales_entries.csv")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not save edits: {e}")
+        save_sales_log(master_index.reset_index())
+        st.success("Saved edits.")
+        st.rerun()
 
     st.subheader("Delete entries")
-    st.caption("Select entries to delete, then confirm.")
-
     delete_options = out.sort_values("created_at", ascending=False)
-    labels = [
-        f"{r.entry_id} | {pd.to_datetime(r.date).date()} | {r.product} | qty {int(r.qty)} | £{float(r.unit_price):.2f} | {r.staff_user}"
-        for r in delete_options.itertuples(index=False)
-    ]
-    id_list = delete_options["entry_id"].tolist()
-    label_to_id = dict(zip(labels, id_list))
 
-    selected_labels = st.multiselect("Entries to delete", options=labels)
-    confirm = st.checkbox("I understand this cannot be undone.")
+    if delete_options.empty:
+        st.caption("Nothing matches your filters.")
+    else:
+        st.caption("Tick entries to delete (visible list).")
+        to_delete = []
+        for r in delete_options.itertuples(index=False):
+            label = (
+                f"{r.entry_id} | {pd.to_datetime(r.date).date()} | {r.product} | "
+                f"qty {int(r.qty)} | £{float(r.unit_price):.2f} | {r.staff_user}"
+            )
+            if st.checkbox(label, key=f"del_{r.entry_id}"):
+                to_delete.append(r.entry_id)
 
-    with c3:
-        if st.button("Delete selected", disabled=(not selected_labels or not confirm)):
-            try:
-                to_delete = [label_to_id[lbl] for lbl in selected_labels]
-                master = df.drop(columns=["day"], errors="ignore").copy()
-                master = master[~master["entry_id"].isin(to_delete)].copy()
-                save_sales_log(master)
-                st.success(f"Deleted {len(to_delete)} entr{'y' if len(to_delete)==1 else 'ies'}.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not delete entries: {e}")
+        confirm = st.checkbox("I understand this cannot be undone.", key="confirm_delete")
+        if st.button("Delete selected", disabled=(not to_delete or not confirm)):
+            master = df.drop(columns=["day"], errors="ignore").copy()
+            master = master[~master["entry_id"].isin(to_delete)].copy()
+            save_sales_log(master)
+            st.success(f"Deleted {len(to_delete)} entr{'y' if len(to_delete)==1 else 'ies'}.")
+            st.rerun()
 
     st.write("")
-    export_df = out.drop(columns=["day"], errors="ignore").copy()
-    csv_bytes = export_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download filtered sales (CSV)",
-        data=csv_bytes,
+        data=out.drop(columns=["day"], errors="ignore").to_csv(index=False).encode("utf-8"),
         file_name="sales_filtered.csv",
         mime="text/csv",
     )
@@ -939,7 +725,6 @@ def page_manager_sales_records() -> None:
 def page_predictions_dashboard() -> None:
     render_pink_header("Predictions", "Upload café CSVs to view trends and generate a 4-week forecast.")
 
-    st.markdown("### Upload files")
     coffee_file = st.file_uploader("Coffee Sales CSV", type=["csv"], key="coffee_upload")
     croissant_file = st.file_uploader("Croissant Sales CSV", type=["csv"], key="croissant_upload")
 
@@ -948,7 +733,6 @@ def page_predictions_dashboard() -> None:
         ["AI (Heuristic)", "ML (Linear Regression)", "AI (Random Forest)"],
         horizontal=True,
     )
-    st.caption("Linear Regression fits a straight line trend. Random Forest learns patterns from lag/weekday features.")
 
     if not coffee_file or not croissant_file:
         st.info("Upload both CSV files to continue.")
@@ -966,169 +750,30 @@ def page_predictions_dashboard() -> None:
     df_all["units_sold"] = pd.to_numeric(df_all["units_sold"], errors="coerce").fillna(0)
     df_all = df_all.dropna(subset=["date"]).sort_values("date")
 
-    with st.expander("Data preview"):
-        st.write("Coffee (long format):")
-        st.dataframe(coffee_long.head(10), use_container_width=True)
-        st.write("Croissant (long format):")
-        st.dataframe(croissant_long.head(10), use_container_width=True)
-        st.write("Combined:")
-        st.dataframe(df_all.head(10), use_container_width=True)
-
-    st.subheader("Best selling products")
-    totals = df_all.groupby("product")["units_sold"].sum().sort_values(ascending=False)
-    top3 = totals.head(3)
-
-    cols = st.columns(3)
-    labels = ["Top 1", "Top 2", "Top 3"]
-    for i in range(3):
-        if i < len(top3):
-            product = top3.index[i]
-            units = int(top3.iloc[i])
-            cols[i].metric(labels[i], product, f"{units:,} sold")
-        else:
-            cols[i].metric(labels[i], "-", "-")
-
-    left, right = st.columns([3, 2])
-
-    daily_total = df_all.groupby("date")["units_sold"].sum().sort_index()
-    daily_total = daily_total.asfreq("D").fillna(0)
-
-    daily_ma7 = moving_average(daily_total, 7)
-
-    with left:
-        chart_section_title(
-            "Daily total sales",
-            "Bars show daily sales. The line shows the 7-day average.",
-        )
-
-        daily_chart_df = pd.DataFrame({"Daily sales": daily_total, "7-day average": daily_ma7})
-        st.bar_chart(daily_chart_df[["Daily sales"]])
-        st.line_chart(daily_chart_df[["7-day average"]])
-
-        friendly_kpi_help(
-            "Reading the trend",
-            "If the bars rise over time and the 7-day average rises, sales are increasing. "
-            "If the 7-day average falls, sales are decreasing.",
-        )
-
-        chart_section_title(
-            "Sales by product",
-            "Top 5 products by total units sold.",
-        )
-        pivot = (
-            df_all.pivot_table(index="date", columns="product", values="units_sold", aggfunc="sum")
-            .fillna(0)
-            .sort_index()
-        )
-        pivot = pivot.asfreq("D").fillna(0)
-
-        top_products = pivot.sum().sort_values(ascending=False).head(5).index.tolist()
-        if top_products:
-            st.line_chart(pivot[top_products])
-        else:
-            st.info("No product data to chart.")
-
-        st.caption("If a product stays near zero most days, it may be higher waste risk if overstocked.")
-
-    with right:
-        chart_section_title(
-            "Weekday pattern",
-            "Average units sold by weekday.",
-        )
-
-        weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        weekday_sales = (
-            df_all.copy()
-            .assign(weekday=df_all["date"].dt.day_name())
-            .groupby("weekday")["units_sold"]
-            .mean()
-            .reindex(weekday_order)
-            .fillna(0)
-        )
-        st.bar_chart(weekday_sales)
-
-        st.write("")
-        chart_section_title(
-            "Lower-volume products",
-            "Products below the overall average daily sales (basic indicator).",
-        )
-        avg = df_all.groupby("product")["units_sold"].mean().sort_values()
-        threshold = float(avg.mean()) if len(avg) else 0.0
-        risky = avg[avg < threshold].head(8)
-
-        if risky.empty:
-            st.success("No obvious low-volume products using this rule.")
-        else:
-            st.dataframe(risky.rename("Average units/day").to_frame(), use_container_width=True)
-            friendly_kpi_help(
-                "What this indicates",
-                "These items sell less than the overall average. Consider smaller batches, promotions, "
-                "or reviewing whether to stock as much.",
-            )
-
-        st.write("")
-        chart_section_title(
-            "Weekly target suggestion",
-            "Based on the average of the last 14 days.",
-        )
-        amount_to_sell = int(max(0, daily_total.tail(14).mean() * 7)) if len(daily_total) else 0
-        st.markdown(f"### Suggested weekly target: **{amount_to_sell:,} units**")
-
-    st.subheader("Forecast (next 4 weeks)")
+    daily_total = df_all.groupby("date")["units_sold"].sum().sort_index().asfreq("D").fillna(0)
 
     if mode == "AI (Heuristic)":
         pred_raw = simple_forecast(daily_total, days=FORECAST_DAYS)
-        model_info = {"ok": True, "type": "heuristic"}
+        _info = {"ok": True, "type": "heuristic"}
     elif mode == "ML (Linear Regression)":
-        pred_raw, model_info = linear_regression_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw, _info = linear_regression_forecast(daily_total, days=FORECAST_DAYS)
     else:
-        pred_raw, model_info = random_forest_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw, _info = random_forest_forecast(daily_total, days=FORECAST_DAYS)
 
     last_date = daily_total.index.max()
     future_index = pd.date_range(last_date + pd.Timedelta(days=1), periods=FORECAST_DAYS, freq="D")
-
     pred_series = pd.Series(pred_raw["predicted"].values, index=future_index)
     band_df = make_pred_band(pred_series, daily_total)
 
-    st.caption("Predicted daily sales with a variation band based on recent volatility.")
     st.line_chart(band_df[["predicted", "lower", "upper"]])
 
-    friendly_kpi_help(
-        "Using the forecast",
-        "Use the forecast for planning. If actual sales track near the upper band, plan for more stock. "
-        "If they track near the lower band, reduce waste risk.",
-    )
-
     with st.expander("Forecast details"):
-        if mode == "AI (Heuristic)":
-            st.write("Heuristic mode uses a rolling mean with a light recent trend.")
-        elif mode == "ML (Linear Regression)":
-            st.write("Linear Regression is trained on daily total sales vs time index.")
-            if not model_info.get("ok", False):
-                st.warning(f"Linear Regression fallback used: {model_info.get('reason', 'unknown reason')}")
-                if not SKLEARN_OK:
-                    st.code("pip install scikit-learn", language="bash")
-            else:
-                st.write(f"- Slope (units/day): **{model_info['slope_per_day']:.4f}**")
-                st.write(f"- Intercept: **{model_info['intercept']:.4f}**")
-                st.write(f"- R² (training fit): **{model_info['r2_train']:.3f}**")
-                st.caption("R² shown is on training data (baseline for coursework).")
-        else:
-            st.write("Random Forest learns from lagged sales + rolling averages + weekday/month patterns.")
-            if not model_info.get("ok", False):
-                st.warning(f"Random Forest fallback used: {model_info.get('reason', 'unknown reason')}")
-                if not SKLEARN_OK:
-                    st.code("pip install scikit-learn", language="bash")
-            else:
-                st.write("- Model: **RandomForestRegressor**")
-                st.write(f"- R² (training fit): **{model_info['r2_train']:.3f}**")
-                st.caption("Training R² can look high with Random Forest; mention it's not a true future-test score.")
+        st.write(_info)
 
     out = band_df.reset_index().rename(columns={"index": "date"})
-    csv_bytes = out.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download 4-week forecast (CSV)",
-        data=csv_bytes,
+        data=out.to_csv(index=False).encode("utf-8"),
         file_name="prediction_next_4_weeks.csv",
         mime="text/csv",
     )
@@ -1143,7 +788,6 @@ inject_blackpink_theme()
 if not login_gate():
     st.stop()
 
-# Sidebar (session + navigation)
 with st.sidebar:
     st.markdown("### Session")
     st.write(f"User: **{st.session_state.username}**")
@@ -1152,21 +796,11 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Menu depends on role
     if st.session_state.role == "manager":
-        page = st.radio(
-            "Navigation",
-            ["Sales Overview", "Sales Records", "Predictions"],
-            index=0,
-        )
+        page = st.radio("Navigation", ["Sales Overview", "Sales Records", "Predictions"], index=0)
     else:
-        page = st.radio(
-            "Navigation",
-            ["Record Sale", "Predictions"],
-            index=0,
-        )
+        page = st.radio("Navigation", ["Record Sale", "Predictions"], index=0)
 
-# Route pages
 if st.session_state.role == "manager" and page == "Sales Overview":
     page_manager_sales_overview()
 elif st.session_state.role == "manager" and page == "Sales Records":
@@ -1176,6 +810,5 @@ elif st.session_state.role == "staff" and page == "Record Sale":
 else:
     page_predictions_dashboard()
 
-# Footer note about prices template
 if not PRICE_FILE.exists():
     st.warning("product_prices.csv was not found and a template should have been created. Please check your folder.")
