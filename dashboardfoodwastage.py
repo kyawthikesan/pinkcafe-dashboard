@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Tuple
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -401,7 +402,26 @@ def load_price_map() -> Dict[str, float]:
     return price_map
 
 
+def save_sales_log(df: pd.DataFrame) -> None:
+    """
+    Writes the full sales log back to disk.
+    Keeps storage columns (not computed 'total').
+    """
+    cols = ["entry_id", "date", "product", "qty", "unit_price", "staff_user", "created_at"]
+    out = df.copy()
+    for c in cols:
+        if c not in out.columns:
+            out[c] = np.nan
+    out = out[cols]
+    out.to_csv(SALES_LOG, index=False)
+
+
 def append_sale(row: dict) -> None:
+    """
+    Appends one sale with a unique entry_id.
+    """
+    row = dict(row)
+    row["entry_id"] = row.get("entry_id") or str(uuid.uuid4())
     df = pd.DataFrame([row])
     if SALES_LOG.exists():
         df.to_csv(SALES_LOG, mode="a", header=False, index=False)
@@ -410,18 +430,30 @@ def append_sale(row: dict) -> None:
 
 
 def load_sales_log() -> pd.DataFrame:
-    cols = ["date", "product", "qty", "unit_price", "staff_user", "created_at"]
+    storage_cols = ["entry_id", "date", "product", "qty", "unit_price", "staff_user", "created_at"]
     if not SALES_LOG.exists():
-        return pd.DataFrame(columns=cols + ["total"])
+        return pd.DataFrame(columns=storage_cols + ["total"])
 
     df = pd.read_csv(SALES_LOG)
-    for c in cols:
+
+    # Backwards compat: add missing columns
+    for c in storage_cols:
         if c not in df.columns:
             df[c] = np.nan
 
+    # If older file has no IDs, generate and persist once
+    df["entry_id"] = df["entry_id"].astype(object)
+    mask = df["entry_id"].isna() | (df["entry_id"].astype(str).str.strip() == "")
+    if mask.any():
+        df.loc[mask, "entry_id"] = [str(uuid.uuid4()) for _ in range(int(mask.sum()))]
+        save_sales_log(df)
+
+    # Types
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
     df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(0.0)
+
+    # Computed
     df["total"] = df["qty"] * df["unit_price"]
     return df
 
@@ -783,7 +815,7 @@ def page_manager_sales_overview() -> None:
 
 
 def page_manager_sales_records() -> None:
-    render_pink_header("Manager • Sales Records", "Filter, review, and export the sales log.")
+    render_pink_header("Manager • Sales Records", "Filter, review, edit, and delete entries.")
 
     df = load_sales_log()
     if df.empty:
@@ -813,14 +845,89 @@ def page_manager_sales_records() -> None:
 
     out = out[(out["day"] >= d_from) & (out["day"] <= d_to)]
 
-    st.subheader("Records")
-    show = out[["date", "product", "qty", "unit_price", "total", "staff_user", "created_at"]].copy()
-    show["unit_price"] = show["unit_price"].map(lambda x: f"£{x:.2f}")
-    show["total"] = show["total"].map(lambda x: f"£{x:.2f}")
-    st.dataframe(show, use_container_width=True)
+    st.subheader("Edit entries")
+    st.caption("Edits apply to the saved log. Unit price changes affect revenue totals.")
+
+    editable_cols = ["entry_id", "date", "product", "qty", "unit_price", "staff_user", "created_at"]
+    view = out[editable_cols].copy()
+    view["date"] = pd.to_datetime(view["date"], errors="coerce").dt.date
+
+    edited = st.data_editor(
+        view,
+        use_container_width=True,
+        hide_index=True,
+        disabled=["entry_id", "created_at"],  # lock stable ID + created timestamp
+        column_config={
+            "entry_id": st.column_config.TextColumn("Entry ID"),
+            "date": st.column_config.DateColumn("Date"),
+            "product": st.column_config.TextColumn("Product"),
+            "qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
+            "unit_price": st.column_config.NumberColumn("Unit price (£)", min_value=0.0, step=0.05, format="%.2f"),
+            "staff_user": st.column_config.TextColumn("Staff user"),
+            "created_at": st.column_config.TextColumn("Created at"),
+        },
+        key="manager_editor",
+    )
+
+    c1, c2, c3 = st.columns([1, 1, 2])
+
+    with c1:
+        if st.button("Save edits"):
+            try:
+                edited2 = edited.copy()
+
+                edited2["date"] = pd.to_datetime(edited2["date"], errors="coerce")
+                if edited2["date"].isna().any():
+                    st.error("One or more edited rows have an invalid date.")
+                    st.stop()
+
+                edited2["qty"] = pd.to_numeric(edited2["qty"], errors="coerce").fillna(0).astype(int)
+                edited2["unit_price"] = pd.to_numeric(edited2["unit_price"], errors="coerce").fillna(0.0)
+
+                master = df.drop(columns=["day"], errors="ignore").copy()
+                master_index = master.set_index("entry_id")
+
+                patch = edited2.set_index("entry_id")
+                for col in ["date", "product", "qty", "unit_price", "staff_user"]:
+                    master_index.loc[patch.index, col] = patch[col]
+
+                master = master_index.reset_index()
+                save_sales_log(master)
+
+                st.success("Saved edits to sales_entries.csv")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not save edits: {e}")
+
+    st.subheader("Delete entries")
+    st.caption("Select entries to delete, then confirm.")
+
+    delete_options = out.sort_values("created_at", ascending=False)
+    labels = [
+        f"{r.entry_id} | {pd.to_datetime(r.date).date()} | {r.product} | qty {int(r.qty)} | £{float(r.unit_price):.2f} | {r.staff_user}"
+        for r in delete_options.itertuples(index=False)
+    ]
+    id_list = delete_options["entry_id"].tolist()
+    label_to_id = dict(zip(labels, id_list))
+
+    selected_labels = st.multiselect("Entries to delete", options=labels)
+    confirm = st.checkbox("I understand this cannot be undone.")
+
+    with c3:
+        if st.button("Delete selected", disabled=(not selected_labels or not confirm)):
+            try:
+                to_delete = [label_to_id[lbl] for lbl in selected_labels]
+                master = df.drop(columns=["day"], errors="ignore").copy()
+                master = master[~master["entry_id"].isin(to_delete)].copy()
+                save_sales_log(master)
+                st.success(f"Deleted {len(to_delete)} entr{'y' if len(to_delete)==1 else 'ies'}.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not delete entries: {e}")
 
     st.write("")
-    csv_bytes = out.drop(columns=["day"], errors="ignore").to_csv(index=False).encode("utf-8")
+    export_df = out.drop(columns=["day"], errors="ignore").copy()
+    csv_bytes = export_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download filtered sales (CSV)",
         data=csv_bytes,
@@ -884,7 +991,6 @@ def page_predictions_dashboard() -> None:
     left, right = st.columns([3, 2])
 
     daily_total = df_all.groupby("date")["units_sold"].sum().sort_index()
-    # ensure daily frequency for nicer ML behaviour
     daily_total = daily_total.asfreq("D").fillna(0)
 
     daily_ma7 = moving_average(daily_total, 7)
@@ -1073,5 +1179,3 @@ else:
 # Footer note about prices template
 if not PRICE_FILE.exists():
     st.warning("product_prices.csv was not found and a template should have been created. Please check your folder.")
-else:
-    pass
