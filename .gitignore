@@ -11,20 +11,7 @@ build/
 .venv/
 venv/
 ENV/
-env/
-pip-wheel-metadata/
 
-# ---- VS Code ----
-.vscode/
-
-# ---- OS ----
-.DS_Store
-Thumbs.db
-
-# ---- Streamlit ----
-.streamlit/secrets.toml
-
-# ---- Project runtime data (optional but recommended) ----
-# If these are generated while running the app, keep them out of git to avoid merge conflicts:
-users.csv
-sales_entries.csv
+# (optional) Python cache
+__pycache__/
+*.pyc
