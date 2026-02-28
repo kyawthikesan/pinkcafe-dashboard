@@ -13,19 +13,21 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-# ---- ML import (safe) ----
+# ---- ML imports (safe) ----
 try:
     from sklearn.linear_model import LinearRegression
+    from sklearn.ensemble import RandomForestRegressor
 
     SKLEARN_OK = True
 except Exception:
     LinearRegression = None
+    RandomForestRegressor = None
     SKLEARN_OK = False
 
 
@@ -330,7 +332,6 @@ def login_gate() -> bool:
     if st.session_state.logged_in:
         return True
 
-    # login UI
     left, mid, right = st.columns([1.2, 1, 1.2])
     with mid:
         st.markdown('<div class="bp-card">', unsafe_allow_html=True)
@@ -555,8 +556,8 @@ def simple_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> pd.DataFram
     return pd.DataFrame({"predicted": future})
 
 
-def linear_regression_forecast(series: pd.Series, days: int = FORECAST_DAYS):
-    if not SKLEARN_OK:
+def linear_regression_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tuple[pd.DataFrame, dict]:
+    if not SKLEARN_OK or LinearRegression is None:
         return simple_forecast(series, days), {"ok": False, "reason": "scikit-learn not installed"}
 
     s = series.dropna()
@@ -577,10 +578,109 @@ def linear_regression_forecast(series: pd.Series, days: int = FORECAST_DAYS):
     pred_df = pd.DataFrame({"predicted": y_future})
     info = {
         "ok": True,
+        "type": "linear_regression",
         "slope_per_day": float(model.coef_[0]),
         "intercept": float(model.intercept_),
         "r2_train": r2,
     }
+    return pred_df, info
+
+
+def make_rf_features(series: pd.Series) -> pd.DataFrame:
+    """
+    Build supervised learning features from a daily time series.
+    Uses lagged values + rolling means + calendar features.
+    """
+    s = series.copy()
+    s.index = pd.to_datetime(s.index)
+    s = s.asfreq("D").fillna(0)
+
+    df = pd.DataFrame({"y": s})
+
+    # Lags
+    for lag in [1, 2, 3, 7, 14]:
+        df[f"lag_{lag}"] = df["y"].shift(lag)
+
+    # Rolling means based on previous days (shift 1 so we don't peek at same-day y)
+    df["roll_mean_7"] = df["y"].shift(1).rolling(7).mean()
+    df["roll_mean_14"] = df["y"].shift(1).rolling(14).mean()
+
+    # Calendar features
+    df["dow"] = df.index.dayofweek
+    df["is_weekend"] = (df["dow"] >= 5).astype(int)
+    df["day_of_month"] = df.index.day
+    df["month"] = df.index.month
+
+    return df.dropna()
+
+
+def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tuple[pd.DataFrame, dict]:
+    if not SKLEARN_OK or RandomForestRegressor is None:
+        return simple_forecast(series, days), {"ok": False, "reason": "scikit-learn not installed"}
+
+    s = series.dropna()
+    # RF needs more history to learn lags/weekly patterns
+    if len(s) < 30:
+        return simple_forecast(series, days), {"ok": False, "reason": "not enough data (need ~30+ days)"}
+
+    # Ensure daily and fill gaps
+    s = s.copy()
+    s.index = pd.to_datetime(s.index)
+    s = s.asfreq("D").fillna(0)
+
+    df = make_rf_features(s)
+    if len(df) < 20:
+        return simple_forecast(series, days), {"ok": False, "reason": "not enough feature rows after lags"}
+
+    X = df.drop(columns=["y"])
+    y = df["y"].astype(float)
+
+    model = RandomForestRegressor(
+        n_estimators=400,
+        random_state=42,
+        min_samples_leaf=2,
+        n_jobs=-1,
+    )
+    model.fit(X, y)
+    r2 = float(model.score(X, y))
+
+    # Recursive multi-step forecast
+    current = s.copy()
+    last_date = current.index.max()
+    preds = []
+
+    def get_val(d: pd.Timestamp) -> float:
+        return float(current.loc[d]) if d in current.index else 0.0
+
+    for i in range(1, days + 1):
+        next_date = last_date + pd.Timedelta(days=i)
+
+        prev_7 = current.loc[(next_date - pd.Timedelta(days=7)) : (next_date - pd.Timedelta(days=1))]
+        prev_14 = current.loc[(next_date - pd.Timedelta(days=14)) : (next_date - pd.Timedelta(days=1))]
+
+        row = {
+            "lag_1": get_val(next_date - pd.Timedelta(days=1)),
+            "lag_2": get_val(next_date - pd.Timedelta(days=2)),
+            "lag_3": get_val(next_date - pd.Timedelta(days=3)),
+            "lag_7": get_val(next_date - pd.Timedelta(days=7)),
+            "lag_14": get_val(next_date - pd.Timedelta(days=14)),
+            "roll_mean_7": float(prev_7.mean()) if len(prev_7) else 0.0,
+            "roll_mean_14": float(prev_14.mean()) if len(prev_14) else 0.0,
+            "dow": int(next_date.dayofweek),
+            "is_weekend": int(next_date.dayofweek >= 5),
+            "day_of_month": int(next_date.day),
+            "month": int(next_date.month),
+        }
+
+        X_next = pd.DataFrame([row])
+        y_next = float(model.predict(X_next)[0])
+        y_next = max(0.0, y_next)
+
+        preds.append(y_next)
+        current.loc[next_date] = y_next
+
+    pred_df = pd.DataFrame({"predicted": np.array(preds, dtype=float)})
+    info = {"ok": True, "type": "random_forest", "r2_train": r2}
     return pred_df, info
 
 
@@ -736,8 +836,12 @@ def page_predictions_dashboard() -> None:
     coffee_file = st.file_uploader("Coffee Sales CSV", type=["csv"], key="coffee_upload")
     croissant_file = st.file_uploader("Croissant Sales CSV", type=["csv"], key="croissant_upload")
 
-    mode = st.radio("Prediction mode", ["AI", "ML"], horizontal=True)
-    st.caption("ML uses Linear Regression trained on daily totals.")
+    mode = st.radio(
+        "Prediction mode",
+        ["AI (Heuristic)", "ML (Linear Regression)", "AI (Random Forest)"],
+        horizontal=True,
+    )
+    st.caption("Linear Regression fits a straight line trend. Random Forest learns patterns from lag/weekday features.")
 
     if not coffee_file or not croissant_file:
         st.info("Upload both CSV files to continue.")
@@ -780,6 +884,9 @@ def page_predictions_dashboard() -> None:
     left, right = st.columns([3, 2])
 
     daily_total = df_all.groupby("date")["units_sold"].sum().sort_index()
+    # ensure daily frequency for nicer ML behaviour
+    daily_total = daily_total.asfreq("D").fillna(0)
+
     daily_ma7 = moving_average(daily_total, 7)
 
     with left:
@@ -807,6 +914,8 @@ def page_predictions_dashboard() -> None:
             .fillna(0)
             .sort_index()
         )
+        pivot = pivot.asfreq("D").fillna(0)
+
         top_products = pivot.sum().sort_values(ascending=False).head(5).index.tolist()
         if top_products:
             st.line_chart(pivot[top_products])
@@ -861,11 +970,13 @@ def page_predictions_dashboard() -> None:
 
     st.subheader("Forecast (next 4 weeks)")
 
-    if mode == "AI":
+    if mode == "AI (Heuristic)":
         pred_raw = simple_forecast(daily_total, days=FORECAST_DAYS)
         model_info = {"ok": True, "type": "heuristic"}
-    else:
+    elif mode == "ML (Linear Regression)":
         pred_raw, model_info = linear_regression_forecast(daily_total, days=FORECAST_DAYS)
+    else:
+        pred_raw, model_info = random_forest_forecast(daily_total, days=FORECAST_DAYS)
 
     last_date = daily_total.index.max()
     future_index = pd.date_range(last_date + pd.Timedelta(days=1), periods=FORECAST_DAYS, freq="D")
@@ -883,12 +994,12 @@ def page_predictions_dashboard() -> None:
     )
 
     with st.expander("Forecast details"):
-        if mode == "AI":
-            st.write("AI mode uses a rolling mean with a light recent trend.")
-        else:
-            st.write("ML mode uses Linear Regression trained on daily total sales vs time index.")
+        if mode == "AI (Heuristic)":
+            st.write("Heuristic mode uses a rolling mean with a light recent trend.")
+        elif mode == "ML (Linear Regression)":
+            st.write("Linear Regression is trained on daily total sales vs time index.")
             if not model_info.get("ok", False):
-                st.warning(f"ML fallback used: {model_info.get('reason', 'unknown reason')}")
+                st.warning(f"Linear Regression fallback used: {model_info.get('reason', 'unknown reason')}")
                 if not SKLEARN_OK:
                     st.code("pip install scikit-learn", language="bash")
             else:
@@ -896,6 +1007,16 @@ def page_predictions_dashboard() -> None:
                 st.write(f"- Intercept: **{model_info['intercept']:.4f}**")
                 st.write(f"- R² (training fit): **{model_info['r2_train']:.3f}**")
                 st.caption("R² shown is on training data (baseline for coursework).")
+        else:
+            st.write("Random Forest learns from lagged sales + rolling averages + weekday/month patterns.")
+            if not model_info.get("ok", False):
+                st.warning(f"Random Forest fallback used: {model_info.get('reason', 'unknown reason')}")
+                if not SKLEARN_OK:
+                    st.code("pip install scikit-learn", language="bash")
+            else:
+                st.write("- Model: **RandomForestRegressor**")
+                st.write(f"- R² (training fit): **{model_info['r2_train']:.3f}**")
+                st.caption("Training R² can look high with Random Forest; mention it's not a true future-test score.")
 
     out = band_df.reset_index().rename(columns={"index": "date"})
     csv_bytes = out.to_csv(index=False).encode("utf-8")
