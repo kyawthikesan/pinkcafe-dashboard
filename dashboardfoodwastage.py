@@ -1,15 +1,9 @@
 # dashboardfoodwastage.py
-# Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Manager/Staff roles + Sales entry + Edit/Delete for manager)
+# Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Manager/Staff roles + Sales entry + Predictions from uploaded CSVs)
 #
-# Streamlit 1.54 dropdown menus can render with invisible text on some setups.
-# This version avoids dropdown-based widgets for critical selections:
-# - Product picker: radio list (always visible)
-# - Manager filters: radio lists
-# - Delete selection: checkbox list (not multiselect dropdown)
-#
-# Files in folder:
-#   - dashboardfoodwastage.py
-#   - product_prices.csv   (auto-template created if missing)
+# What you need in the project folder:
+#   - dashboardfoodwastage.py  (this file)
+#   - product_prices.csv       (teacher-provided prices; auto-template created if missing)
 #
 # Predictions page expects TWO CSV uploads:
 #   1) Coffee CSV: "Pink CoffeeSales March - Oct 2025.csv"  (weird first-row product names)
@@ -20,7 +14,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Tuple
-import uuid
 
 import numpy as np
 import pandas as pd
@@ -45,10 +38,8 @@ FORECAST_DAYS = 28
 PRICE_FILE = Path("product_prices.csv")
 SALES_LOG = Path("sales_entries.csv")
 
-# Stable schema for the sales log
-SALES_COLS = ["entry_id", "date", "product", "qty", "unit_price", "staff_user", "created_at"]
-
-# Demo users
+# Demo users (replace later with secrets/hashes if needed)
+# username is case-insensitive
 DEMO_USERS = {
     "manager": {"password": "manager123", "role": "manager"},
     "staff": {"password": "staff123", "role": "staff"},
@@ -56,21 +47,26 @@ DEMO_USERS = {
 
 
 # ----------------------------
-# BLACKPINK Theme (keeps style; removes top white gap)
+# BLACKPINK Theme (higher contrast + more professional)
 # ----------------------------
 def inject_blackpink_theme() -> None:
     st.markdown(
         """
         <style>
+        /* ---------- Blackpink Pro Palette ---------- */
         :root{
             --bp-bg: #06060A;
             --bp-bg-2: #0A0A10;
+
+            --bp-surface: rgba(255,255,255,0.06);
+            --bp-surface-2: rgba(255,255,255,0.09);
 
             --bp-border: rgba(255,105,180,0.22);
             --bp-border-strong: rgba(255,105,180,0.40);
 
             --bp-text: #F6F1F7;
             --bp-text-dim: rgba(246,241,247,0.78);
+            --bp-text-mute: rgba(246,241,247,0.62);
 
             --bp-pink: #ff69b4;
             --bp-pink-2: #ff2d95;
@@ -79,20 +75,6 @@ def inject_blackpink_theme() -> None:
             --bp-radius: 18px;
             --bp-radius-sm: 12px;
         }
-
-        /* Remove Streamlit header gap / toolbar */
-        header[data-testid="stHeader"]{
-            background: transparent !important;
-            height: 0px !important;
-            border-bottom: none !important;
-        }
-        div[data-testid="stToolbar"]{
-            visibility: hidden !important;
-            height: 0px !important;
-        }
-        #MainMenu { visibility: hidden !important; }
-        footer { visibility: hidden !important; }
-        .block-container { padding-top: 1rem !important; padding-bottom: 2.6rem !important; }
 
         .stApp {
             background:
@@ -107,14 +89,26 @@ def inject_blackpink_theme() -> None:
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
         }
 
-        h1, h2, h3, h4 { color: var(--bp-pink) !important; }
-        p, li, label, .stMarkdown, .stCaption { color: var(--bp-text-dim) !important; }
+        .block-container { padding-top: 1.1rem; padding-bottom: 2.6rem; }
+
+        h1, h2, h3, h4 {
+            color: var(--bp-pink) !important;
+            letter-spacing: 0.2px;
+        }
+        p, li, label, .stMarkdown, .stCaption {
+            color: var(--bp-text-dim) !important;
+        }
 
         section[data-testid="stSidebar"]{
             background: linear-gradient(180deg, var(--bp-bg-2) 0%, #050508 100%);
             border-right: 1px solid var(--bp-border);
         }
-        section[data-testid="stSidebar"] *{ color: var(--bp-text) !important; }
+        section[data-testid="stSidebar"] *{
+            color: var(--bp-text) !important;
+        }
+        section[data-testid="stSidebar"] .stRadio label {
+            color: var(--bp-text-dim) !important;
+        }
 
         .bp-card {
             background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.04) 100%);
@@ -124,18 +118,26 @@ def inject_blackpink_theme() -> None:
             box-shadow: var(--bp-shadow);
             backdrop-filter: blur(10px);
         }
+
         .bp-badge {
             display: inline-block;
             padding: 6px 12px;
             border-radius: 999px;
             border: 1px solid rgba(255,105,180,0.38);
-            background: linear-gradient(180deg, rgba(255,105,180,0.14) 0%, rgba(0,0,0,0.10) 100%);
+            background:
+                linear-gradient(180deg, rgba(255,105,180,0.14) 0%, rgba(0,0,0,0.10) 100%);
             color: rgba(246,241,247,0.92);
             font-size: 11px;
             font-weight: 800;
             letter-spacing: 0.12em;
             text-transform: uppercase;
             margin-bottom: 12px;
+        }
+
+        .bp-divider {
+            height: 1px;
+            background: rgba(255,105,180,0.18);
+            margin: 14px 0;
         }
 
         .stButton > button,
@@ -148,7 +150,17 @@ def inject_blackpink_theme() -> None:
             border-radius: 14px !important;
             padding: 0.62rem 1.05rem !important;
             font-weight: 900 !important;
+            letter-spacing: 0.2px !important;
             box-shadow: 0 10px 26px rgba(255,45,149,0.14) !important;
+            transition: transform 120ms ease, filter 120ms ease !important;
+        }
+
+        .stButton > button:hover,
+        button[kind="primary"]:hover,
+        button[kind="secondary"]:hover,
+        div[data-testid="stForm"] button:hover {
+            filter: brightness(1.05) !important;
+            transform: translateY(-1px) !important;
         }
 
         .stTextInput input,
@@ -159,6 +171,10 @@ def inject_blackpink_theme() -> None:
             color: var(--bp-text) !important;
             border: 1px solid rgba(255,255,255,0.10) !important;
             border-radius: var(--bp-radius-sm) !important;
+        }
+
+        div[role="radiogroup"] label, .stCheckbox label{
+            color: var(--bp-text-dim) !important;
         }
 
         div[data-testid="stAlert"]{
@@ -173,11 +189,20 @@ def inject_blackpink_theme() -> None:
             border: 1px solid rgba(255,255,255,0.10);
             overflow: hidden;
         }
-        div[data-testid="stDataFrame"] * { color: var(--bp-text) !important; }
+        div[data-testid="stDataFrame"] * {
+            color: var(--bp-text) !important;
+        }
         div[data-testid="stDataFrame"] thead tr th {
             background: rgba(255,105,180,0.10) !important;
             border-bottom: 1px solid var(--bp-border) !important;
         }
+        div[data-testid="stDataFrame"] tbody tr:hover td{
+            background: rgba(255,105,180,0.06) !important;
+        }
+
+        a, a:visited { color: rgba(255,182,217,0.95) !important; }
+        a:hover { color: var(--bp-pink) !important; }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -196,6 +221,44 @@ def render_pink_header(title: str, subtitle: str) -> None:
         unsafe_allow_html=True,
     )
     st.write("")
+
+
+# ----------------------------
+# Chart helpers
+# ----------------------------
+def moving_average(s: pd.Series, window: int = 7) -> pd.Series:
+    s = s.sort_index()
+    return s.rolling(window=window, min_periods=max(1, window // 2)).mean()
+
+
+def friendly_kpi_help(title: str, text: str) -> None:
+    st.markdown(
+        f"""
+        <div class="bp-card" style="padding:16px; background: linear-gradient(180deg, rgba(255,105,180,0.10) 0%, rgba(255,255,255,0.05) 100%);">
+            <div class="bp-badge">{title}</div>
+            <div style="color: rgba(246,241,247,0.78); line-height:1.5;">{text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write("")
+
+
+def chart_section_title(title: str, subtitle: str) -> None:
+    st.markdown(f"## {title}")
+    st.caption(subtitle)
+    st.write("")
+
+
+def make_pred_band(pred: pd.Series, recent_actual: pd.Series) -> pd.DataFrame:
+    """
+    Friendly 'range' band using recent variability (NOT a statistical confidence interval).
+    """
+    recent = recent_actual.dropna().tail(21)
+    spread = float(recent.std()) if len(recent) >= 5 else 0.0
+    lower = (pred - spread).clip(lower=0)
+    upper = (pred + spread).clip(lower=0)
+    return pd.DataFrame({"predicted": pred, "lower": lower, "upper": upper})
 
 
 # ----------------------------
@@ -233,7 +296,8 @@ def login_gate() -> bool:
             else:
                 st.error("Invalid username or password.")
 
-        st.caption("Demo accounts: manager/manager123 and staff/staff123")
+        st.markdown('<div class="bp-divider"></div>', unsafe_allow_html=True)
+        st.caption("Demo accounts (change later): manager/manager123 and staff/staff123")
         st.markdown("</div>", unsafe_allow_html=True)
 
     return False
@@ -248,11 +312,12 @@ def logout_button() -> None:
 
 
 # ----------------------------
-# Price list
+# Price list + Sales log (CSV persistence)
 # ----------------------------
 def ensure_price_file_template() -> None:
     if PRICE_FILE.exists():
         return
+
     template = pd.DataFrame(
         {"product": ["Cappuccino", "Americano", "Croissant"], "unit_price": [3.50, 3.00, 2.20]}
     )
@@ -274,140 +339,29 @@ def load_price_map() -> Dict[str, float]:
     return price_map
 
 
-# ----------------------------
-# Sales log (robust write + auto-migrate/repair)
-# ----------------------------
-def _make_row_safe(row: dict) -> dict:
-    """Ensure row has every SALES_COLS key and correct basic types."""
-    r = {k: row.get(k) for k in SALES_COLS}
-    r["entry_id"] = str(r.get("entry_id") or uuid.uuid4())
-    r["date"] = str(r.get("date") or date.today())
-    r["product"] = str(r.get("product") or "").strip()
-    r["qty"] = int(pd.to_numeric(r.get("qty"), errors="coerce") or 0)
-    r["unit_price"] = float(pd.to_numeric(r.get("unit_price"), errors="coerce") or 0.0)
-    r["staff_user"] = str(r.get("staff_user") or "").strip().lower()
-    r["created_at"] = str(r.get("created_at") or datetime.now().isoformat(timespec="seconds"))
-    return r
-
-
-def save_sales_log(df: pd.DataFrame) -> None:
-    out = df.copy()
-
-    # Ensure correct columns + order
-    for c in SALES_COLS:
-        if c not in out.columns:
-            out[c] = np.nan
-    out = out[SALES_COLS].copy()
-
-    out.to_csv(SALES_LOG, index=False)
-
-
 def append_sale(row: dict) -> None:
-    r = _make_row_safe(row)
-    df = pd.DataFrame([r], columns=SALES_COLS)
-
+    cols = ["date", "product", "qty", "unit_price", "staff_user", "created_at"]
+    safe = {c: row.get(c) for c in cols}
+    df = pd.DataFrame([safe], columns=cols)
     if SALES_LOG.exists():
-        # Always append in the same column order, no header
         df.to_csv(SALES_LOG, mode="a", header=False, index=False)
     else:
         df.to_csv(SALES_LOG, index=False)
 
 
-def _try_read_sales_csv() -> pd.DataFrame:
-    """
-    Try to read sales_entries.csv in a few ways to handle older/broken files.
-    Returns a DataFrame (may have weird columns) or raises.
-    """
-    # Normal expected case (has headers)
-    try:
-        df = pd.read_csv(SALES_LOG)
-        return df
-    except Exception:
-        pass
-
-    # If file has no header or is malformed, try header=None
-    df = pd.read_csv(SALES_LOG, header=None)
-    return df
-
-
-def migrate_or_repair_sales_log() -> None:
-    """
-    If an old version created sales_entries.csv with different columns/order,
-    normalize it into the current SALES_COLS schema.
-    """
-    if not SALES_LOG.exists():
-        return
-
-    df_raw = _try_read_sales_csv()
-
-    # Case A: Already has the right headers (or close enough)
-    if isinstance(df_raw.columns[0], str) and any(c in df_raw.columns for c in ["date", "product", "qty"]):
-        df = df_raw.copy()
-    else:
-        # Case B: No header / numeric columns. Attempt to map by column count.
-        df = df_raw.copy()
-        # If the old file had 6 columns: date,product,qty,unit_price,staff_user,created_at
-        if df.shape[1] >= 6:
-            df = df.iloc[:, :6].copy()
-            df.columns = ["date", "product", "qty", "unit_price", "staff_user", "created_at"]
-        else:
-            raise ValueError(
-                f"sales_entries.csv looks corrupted (only {df.shape[1]} columns). "
-                "Move it aside or delete it to start fresh."
-            )
-
-    # Normalize columns
-    for c in SALES_COLS:
-        if c not in df.columns:
-            df[c] = np.nan
-
-    # Clean types + fill missing ids
-    df["entry_id"] = df["entry_id"].astype(object)
-    mask = df["entry_id"].isna() | (df["entry_id"].astype(str).str.strip() == "")
-    if mask.any():
-        df.loc[mask, "entry_id"] = [str(uuid.uuid4()) for _ in range(int(mask.sum()))]
-
-    # Normalise user / product text
-    df["staff_user"] = df["staff_user"].astype(str).str.strip().str.lower()
-    df["product"] = df["product"].astype(str).str.strip()
-
-    # Parse date where possible, but keep original string if not
-    d = pd.to_datetime(df["date"], errors="coerce")
-    df.loc[d.notna(), "date"] = d.loc[d.notna()].dt.date.astype(str)
-
-    df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
-    df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(0.0).astype(float)
-    df["created_at"] = df["created_at"].astype(str).replace("nan", "").fillna("")
-
-    # Save back in clean schema order
-    save_sales_log(df[SALES_COLS].copy())
-
-
 def load_sales_log() -> pd.DataFrame:
-    """
-    Returns cleaned log with computed 'total' and parsed date as datetime.
-    """
+    cols = ["date", "product", "qty", "unit_price", "staff_user", "created_at"]
     if not SALES_LOG.exists():
-        return pd.DataFrame(columns=SALES_COLS + ["total"])
-
-    # Attempt repair/migration every run (cheap and fixes old files)
-    try:
-        migrate_or_repair_sales_log()
-    except Exception as e:
-        st.error(f"Sales log could not be repaired automatically: {e}")
-        st.stop()
+        return pd.DataFrame(columns=cols + ["total"])
 
     df = pd.read_csv(SALES_LOG)
-
-    # Ensure schema
-    for c in SALES_COLS:
+    for c in cols:
         if c not in df.columns:
             df[c] = np.nan
-    df = df[SALES_COLS].copy()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
-    df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(0.0).astype(float)
+    df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(0.0)
     df["staff_user"] = df["staff_user"].astype(str).str.strip().str.lower()
     df["product"] = df["product"].astype(str).str.strip()
     df["total"] = df["qty"] * df["unit_price"]
@@ -415,7 +369,7 @@ def load_sales_log() -> pd.DataFrame:
 
 
 # ----------------------------
-# CSV loaders + forecasting
+# CSV loaders + forecasting (UPLOADS)
 # ----------------------------
 def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -444,21 +398,43 @@ def load_coffee_weird_layout(uploaded_file) -> pd.DataFrame:
         df = df[["Date"] + sales_cols].copy()
         df.columns = ["Date"] + product_names
         df = df.iloc[1:].copy()
-    else:
-        raise ValueError("Coffee file format not recognised.")
 
-    df["Date"] = parse_date_series(df["Date"])
-    df = df.dropna(subset=["Date"])
+        df["Date"] = parse_date_series(df["Date"])
+        df = df.dropna(subset=["Date"])
 
-    for c in df.columns:
-        if c != "Date":
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+        for c in df.columns:
+            if c != "Date":
+                df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    long = df.melt(id_vars=["Date"], var_name="product", value_name="units_sold")
-    long = long.dropna(subset=["units_sold"])
-    long["product"] = long["product"].astype(str).str.strip()
-    long = long.rename(columns={"Date": "date"})
-    return long[["date", "product", "units_sold"]]
+        long = df.melt(id_vars=["Date"], var_name="product", value_name="units_sold")
+        long = long.dropna(subset=["units_sold"])
+        long["product"] = long["product"].astype(str).str.strip()
+        long = long.rename(columns={"Date": "date"})
+        return long[["date", "product", "units_sold"]]
+
+    lower_cols = [c.lower().strip() for c in df.columns]
+    if "product" in lower_cols and any(x in lower_cols for x in ["number sold", "units_sold", "units sold", "sold"]):
+        colmap = {}
+        for c in df.columns:
+            cl = c.lower().strip()
+            if cl == "date":
+                colmap[c] = "Date"
+            elif cl == "product":
+                colmap[c] = "Product"
+            elif cl in ["number sold", "units_sold", "units sold", "sold"]:
+                colmap[c] = "Number Sold"
+        df = df.rename(columns=colmap)
+
+        df["Date"] = parse_date_series(df["Date"])
+        df["Number Sold"] = pd.to_numeric(df["Number Sold"], errors="coerce")
+        df = df.dropna(subset=["Date"])
+
+        out = df[["Date", "Product", "Number Sold"]].copy()
+        out.columns = ["date", "product", "units_sold"]
+        out["product"] = out["product"].astype(str).str.strip()
+        return out
+
+    raise ValueError("Coffee file format not recognised.")
 
 
 def load_simple_product_file(uploaded_file, product_name: str) -> pd.DataFrame:
@@ -621,7 +597,7 @@ def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tupl
 # Pages
 # ----------------------------
 def page_staff_record_sale() -> None:
-    render_pink_header("Staff • Record Sales", "Enter sales. Recent entries should update immediately.")
+    render_pink_header("Staff • Record Sales", "Enter sales. Unit price is fixed from the price list.")
 
     price_map = load_price_map()
     products = list(price_map.keys())
@@ -630,38 +606,37 @@ def page_staff_record_sale() -> None:
 
     with st.form("sale_form", clear_on_submit=True):
         d = st.date_input("Date", value=date.today())
+
+        # RADIO instead of selectbox
         product = st.radio("Product", products, index=0)
+
         unit_price = float(price_map[product])
         st.text_input("Unit price", value=f"£{unit_price:.2f}", disabled=True)
+
         qty = st.number_input("Quantity sold", min_value=1, step=1, value=1)
         submitted = st.form_submit_button("Save")
 
     if submitted:
-        append_sale(
-            {
-                "date": str(d),
-                "product": product,
-                "qty": int(qty),
-                "unit_price": float(unit_price),
-                "staff_user": st.session_state.username,
-                "created_at": datetime.now().isoformat(timespec="seconds"),
-            }
-        )
+        row = {
+            "date": str(d),
+            "product": product,
+            "qty": int(qty),
+            "unit_price": float(unit_price),
+            "staff_user": str(st.session_state.username).strip().lower(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        append_sale(row)
         st.success("Saved.")
         st.rerun()
 
     st.write("")
     st.subheader("Recent entries")
-
     df = load_sales_log()
-
-    # IMPORTANT: username stored lower-case in login_gate; match that
     mine = df[df["staff_user"] == str(st.session_state.username).strip().lower()].copy()
-
     if mine.empty:
-        st.caption("No entries yet (or your existing CSV is from an older schema and was just repaired).")
+        st.caption("No entries yet.")
     else:
-        mine = mine.sort_values("created_at", ascending=False).head(25)
+        mine = mine.sort_values("created_at", ascending=False).head(20)
         show = mine[["date", "product", "qty", "unit_price", "total", "created_at"]].copy()
         show["date"] = pd.to_datetime(show["date"], errors="coerce").dt.date.astype(str)
         show["unit_price"] = show["unit_price"].map(lambda x: f"£{float(x):.2f}")
@@ -686,16 +661,33 @@ def page_manager_sales_overview() -> None:
     c3.metric("Transactions", int(len(df)))
 
     st.write("")
+
     revenue_daily = df.groupby("day")["total"].sum().sort_index()
+    rev_ma7 = moving_average(revenue_daily, 7)
+
+    chart_section_title("Revenue by day", "Bars show revenue per day. The line shows the 7-day average.")
     st.bar_chart(pd.DataFrame({"Daily revenue": revenue_daily}))
-    st.line_chart(pd.DataFrame({"7-day average": revenue_daily.rolling(7, min_periods=1).mean()}))
+    st.line_chart(pd.DataFrame({"7-day average": rev_ma7}))
+
+    chart_section_title("Weekly revenue", "Total revenue grouped by week.")
+    weekly_rev = df.groupby(df["date"].dt.to_period("W"))["total"].sum()
+    weekly_rev.index = weekly_rev.index.astype(str)
+    st.bar_chart(weekly_rev)
+
+    st.write("")
+    st.subheader("Units by day")
+    units_daily = df.groupby("day")["qty"].sum().sort_index()
+    units_ma7 = moving_average(units_daily, 7)
+    st.bar_chart(pd.DataFrame({"Daily units": units_daily}))
+    st.line_chart(pd.DataFrame({"7-day average": units_ma7}))
 
     st.subheader("Top products by revenue")
-    st.bar_chart(df.groupby("product")["total"].sum().sort_values(ascending=False))
+    by_prod = df.groupby("product")["total"].sum().sort_values(ascending=False)
+    st.bar_chart(by_prod)
 
 
 def page_manager_sales_records() -> None:
-    render_pink_header("Manager • Sales Records", "Filter, review, edit, and delete entries.")
+    render_pink_header("Manager • Sales Records", "Filter, review, and export the sales log.")
 
     df = load_sales_log()
     if df.empty:
@@ -705,13 +697,15 @@ def page_manager_sales_records() -> None:
     df = df.dropna(subset=["date"]).copy()
     df["day"] = df["date"].dt.date
 
-    with st.sidebar:
-        st.markdown("### Filters (no dropdowns)")
-        products = ["(All)"] + sorted(df["product"].dropna().unique().tolist())
-        staff_users = ["(All)"] + sorted(df["staff_user"].dropna().unique().tolist())
+    products = sorted(df["product"].dropna().unique().tolist())
+    staff_users = sorted(df["staff_user"].dropna().unique().tolist())
 
-        f_product = st.radio("Product", products, index=0)
-        f_staff = st.radio("Staff user", staff_users, index=0)
+    with st.sidebar:
+        st.markdown("### Filters (radios)")
+
+        # RADIO instead of dropdowns
+        f_product = st.radio("Product", ["(All)"] + products, index=0)
+        f_staff = st.radio("Staff user", ["(All)"] + staff_users, index=0)
 
         dmin = df["day"].min()
         dmax = df["day"].max()
@@ -722,76 +716,21 @@ def page_manager_sales_records() -> None:
         out = out[out["product"] == f_product]
     if f_staff != "(All)":
         out = out[out["staff_user"] == f_staff]
+
     out = out[(out["day"] >= d_from) & (out["day"] <= d_to)]
 
-    st.subheader("Edit entries")
-    view = out[SALES_COLS].copy()
-    view["date"] = pd.to_datetime(view["date"], errors="coerce").dt.date
-
-    edited = st.data_editor(
-        view,
-        use_container_width=True,
-        hide_index=True,
-        disabled=["entry_id", "created_at"],
-        column_config={
-            "date": st.column_config.DateColumn("Date"),
-            "qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
-            "unit_price": st.column_config.NumberColumn("Unit price (£)", min_value=0.0, step=0.05, format="%.2f"),
-        },
-        key="manager_editor",
-    )
-
-    if st.button("Save edits"):
-        edited2 = edited.copy()
-        edited2["date"] = pd.to_datetime(edited2["date"], errors="coerce")
-        if edited2["date"].isna().any():
-            st.error("One or more edited rows have an invalid date.")
-            st.stop()
-
-        edited2["qty"] = pd.to_numeric(edited2["qty"], errors="coerce").fillna(0).astype(int)
-        edited2["unit_price"] = pd.to_numeric(edited2["unit_price"], errors="coerce").fillna(0.0).astype(float)
-        edited2["staff_user"] = edited2["staff_user"].astype(str).str.strip().str.lower()
-        edited2["product"] = edited2["product"].astype(str).str.strip()
-
-        master = df.copy()
-        master_index = master.set_index("entry_id")
-        patch = edited2.set_index("entry_id")
-
-        for col in ["date", "product", "qty", "unit_price", "staff_user"]:
-            master_index.loc[patch.index, col] = patch[col]
-
-        save_sales_log(master_index.reset_index()[SALES_COLS])
-        st.success("Saved edits.")
-        st.rerun()
-
-    st.subheader("Delete entries")
-    delete_options = out.sort_values("created_at", ascending=False)
-
-    if delete_options.empty:
-        st.caption("Nothing matches your filters.")
-    else:
-        st.caption("Tick entries to delete (visible list).")
-        to_delete = []
-        for r in delete_options.itertuples(index=False):
-            label = (
-                f"{r.entry_id} | {pd.to_datetime(r.date).date()} | {r.product} | "
-                f"qty {int(r.qty)} | £{float(r.unit_price):.2f} | {r.staff_user}"
-            )
-            if st.checkbox(label, key=f"del_{r.entry_id}"):
-                to_delete.append(r.entry_id)
-
-        confirm = st.checkbox("I understand this cannot be undone.", key="confirm_delete")
-        if st.button("Delete selected", disabled=(not to_delete or not confirm)):
-            master = df.copy()
-            master = master[~master["entry_id"].isin(to_delete)].copy()
-            save_sales_log(master[SALES_COLS])
-            st.success(f"Deleted {len(to_delete)} entr{'y' if len(to_delete)==1 else 'ies'}.")
-            st.rerun()
+    st.subheader("Records")
+    show = out[["date", "product", "qty", "unit_price", "total", "staff_user", "created_at"]].copy()
+    show["date"] = pd.to_datetime(show["date"], errors="coerce").dt.date.astype(str)
+    show["unit_price"] = show["unit_price"].map(lambda x: f"£{float(x):.2f}")
+    show["total"] = show["total"].map(lambda x: f"£{float(x):.2f}")
+    st.dataframe(show, use_container_width=True)
 
     st.write("")
+    csv_bytes = out.drop(columns=["day"], errors="ignore").to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download filtered sales (CSV)",
-        data=out.drop(columns=["day"], errors="ignore").to_csv(index=False).encode("utf-8"),
+        data=csv_bytes,
         file_name="sales_filtered.csv",
         mime="text/csv",
     )
@@ -800,6 +739,7 @@ def page_manager_sales_records() -> None:
 def page_predictions_dashboard() -> None:
     render_pink_header("Predictions", "Upload café CSVs to view trends and generate a 4-week forecast.")
 
+    st.markdown("### Upload files")
     coffee_file = st.file_uploader("Coffee Sales CSV", type=["csv"], key="coffee_upload")
     croissant_file = st.file_uploader("Croissant Sales CSV", type=["csv"], key="croissant_upload")
 
@@ -808,6 +748,7 @@ def page_predictions_dashboard() -> None:
         ["AI (Heuristic)", "ML (Linear Regression)", "AI (Random Forest)"],
         horizontal=True,
     )
+    st.caption("Linear Regression fits a straight line trend. Random Forest learns patterns from lag/weekday features.")
 
     if not coffee_file or not croissant_file:
         st.info("Upload both CSV files to continue.")
@@ -825,30 +766,105 @@ def page_predictions_dashboard() -> None:
     df_all["units_sold"] = pd.to_numeric(df_all["units_sold"], errors="coerce").fillna(0)
     df_all = df_all.dropna(subset=["date"]).sort_values("date")
 
-    daily_total = df_all.groupby("date")["units_sold"].sum().sort_index().asfreq("D").fillna(0)
+    with st.expander("Data preview"):
+        st.write("Coffee (long format):")
+        st.dataframe(coffee_long.head(10), use_container_width=True)
+        st.write("Croissant (long format):")
+        st.dataframe(croissant_long.head(10), use_container_width=True)
+        st.write("Combined:")
+        st.dataframe(df_all.head(10), use_container_width=True)
+
+    st.subheader("Best selling products")
+    totals = df_all.groupby("product")["units_sold"].sum().sort_values(ascending=False)
+    top3 = totals.head(3)
+
+    cols = st.columns(3)
+    labels = ["Top 1", "Top 2", "Top 3"]
+    for i in range(3):
+        if i < len(top3):
+            product = str(top3.index[i])
+            units = int(top3.iloc[i])
+            cols[i].metric(labels[i], product, f"{units:,} sold")
+        else:
+            cols[i].metric(labels[i], "-", "-")
+
+    left, right = st.columns([3, 2])
+
+    daily_total = df_all.groupby("date")["units_sold"].sum().sort_index()
+    daily_total = daily_total.asfreq("D").fillna(0)
+    daily_ma7 = moving_average(daily_total, 7)
+
+    with left:
+        chart_section_title("Daily total sales", "Bars show daily sales. The line shows the 7-day average.")
+        daily_chart_df = pd.DataFrame({"Daily sales": daily_total, "7-day average": daily_ma7})
+        st.bar_chart(daily_chart_df[["Daily sales"]])
+        st.line_chart(daily_chart_df[["7-day average"]])
+
+        friendly_kpi_help(
+            "Reading the trend",
+            "If the bars rise over time and the 7-day average rises, sales are increasing. "
+            "If the 7-day average falls, sales are decreasing.",
+        )
+
+        chart_section_title("Sales by product", "Top 5 products by total units sold.")
+        pivot = (
+            df_all.pivot_table(index="date", columns="product", values="units_sold", aggfunc="sum")
+            .fillna(0)
+            .sort_index()
+        )
+        pivot = pivot.asfreq("D").fillna(0)
+
+        top_products = pivot.sum().sort_values(ascending=False).head(5).index.tolist()
+        if top_products:
+            st.line_chart(pivot[top_products])
+        else:
+            st.info("No product data to chart.")
+
+    with right:
+        chart_section_title("Weekday pattern", "Average units sold by weekday.")
+        weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        weekday_sales = (
+            df_all.copy()
+            .assign(weekday=df_all["date"].dt.day_name())
+            .groupby("weekday")["units_sold"]
+            .mean()
+            .reindex(weekday_order)
+            .fillna(0)
+        )
+        st.bar_chart(weekday_sales)
+
+        st.write("")
+        chart_section_title("Weekly target suggestion", "Based on the average of the last 14 days.")
+        amount_to_sell = int(max(0, daily_total.tail(14).mean() * 7)) if len(daily_total) else 0
+        st.markdown(f"### Suggested weekly target: **{amount_to_sell:,} units**")
+
+    st.subheader("Forecast (next 4 weeks)")
 
     if mode == "AI (Heuristic)":
         pred_raw = simple_forecast(daily_total, days=FORECAST_DAYS)
-        _info = {"ok": True, "type": "heuristic"}
+        model_info = {"ok": True, "type": "heuristic"}
     elif mode == "ML (Linear Regression)":
-        pred_raw, _info = linear_regression_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw, model_info = linear_regression_forecast(daily_total, days=FORECAST_DAYS)
     else:
-        pred_raw, _info = random_forest_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw, model_info = random_forest_forecast(daily_total, days=FORECAST_DAYS)
 
     last_date = daily_total.index.max()
     future_index = pd.date_range(last_date + pd.Timedelta(days=1), periods=FORECAST_DAYS, freq="D")
+
     pred_series = pd.Series(pred_raw["predicted"].values, index=future_index)
     band_df = make_pred_band(pred_series, daily_total)
 
+    st.caption("Predicted daily sales with a variation band based on recent volatility.")
     st.line_chart(band_df[["predicted", "lower", "upper"]])
 
     with st.expander("Forecast details"):
-        st.write(_info)
+        st.write(model_info)
 
     out = band_df.reset_index().rename(columns={"index": "date"})
+    csv_bytes = out.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download 4-week forecast (CSV)",
-        data=out.to_csv(index=False).encode("utf-8"),
+        data=csv_bytes,
         file_name="prediction_next_4_weeks.csv",
         mime="text/csv",
     )
