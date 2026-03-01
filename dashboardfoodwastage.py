@@ -1,4 +1,4 @@
-# dashboardfoodwastage.py
+## dashboardfoodwastage.py
 # Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Admin/Manager/Staff roles + Sales entry + Predictions from uploaded CSVs)
 #
 # What you need in the project folder:
@@ -37,7 +37,6 @@ except Exception:
 # ----------------------------
 # Config / Paths
 # ----------------------------
-FORECAST_DAYS = 28
 PRICE_FILE = Path("product_prices.csv")
 SALES_LOG = Path("sales_entries.csv")
 USERS_FILE = Path("users.csv")
@@ -659,7 +658,7 @@ def load_simple_product_file(uploaded_file, product_name: str) -> pd.DataFrame:
     return out[["date", "product", "units_sold"]]
 
 
-def simple_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> pd.DataFrame:
+def simple_forecast(series: pd.Series, days: int) -> pd.DataFrame:
     s = series.dropna()
     if len(s) < 2:
         future = np.repeat(float(s.iloc[-1]) if len(s) else 0.0, days)
@@ -678,7 +677,7 @@ def simple_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> pd.DataFram
     return pd.DataFrame({"predicted": future})
 
 
-def linear_regression_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tuple[pd.DataFrame, dict]:
+def linear_regression_forecast(series: pd.Series, days: int) -> Tuple[pd.DataFrame, dict]:
     if not SKLEARN_OK or LinearRegression is None:
         return simple_forecast(series, days), {"ok": False, "reason": "scikit-learn not installed"}
 
@@ -726,7 +725,7 @@ def make_rf_features(series: pd.Series) -> pd.DataFrame:
     return df.dropna()
 
 
-def random_forest_forecast(series: pd.Series, days: int = FORECAST_DAYS) -> Tuple[pd.DataFrame, dict]:
+def random_forest_forecast(series: pd.Series, days: int) -> Tuple[pd.DataFrame, dict]:
     if not SKLEARN_OK or RandomForestRegressor is None:
         return simple_forecast(series, days), {"ok": False, "reason": "scikit-learn not installed"}
 
@@ -939,7 +938,10 @@ def page_manager_sales_records() -> None:
     def _label(r: pd.Series) -> str:
         d = pd.to_datetime(r["date"], errors="coerce")
         d_str = d.date().isoformat() if pd.notna(d) else str(r.get("date", ""))
-        return f"{d_str} | {r.get('product','')} | qty {int(r.get('qty',0))} | £{float(r.get('unit_price',0.0)):.2f} | {r.get('staff_user','')} | {str(r.get('created_at',''))}"
+        return (
+            f"{d_str} | {r.get('product','')} | qty {int(r.get('qty',0))} | "
+            f"£{float(r.get('unit_price',0.0)):.2f} | {r.get('staff_user','')} | {str(r.get('created_at',''))}"
+        )
 
     options = out["_row_id"].tolist()
     labels = {rid: _label(out.loc[idx]) for idx, rid in zip(out.index, options)}
@@ -1097,11 +1099,15 @@ def page_admin_user_management() -> None:
 
 
 def page_predictions_dashboard() -> None:
-    render_pink_header("Predictions", "Upload café CSVs to view trends and generate a 4-week forecast.")
+    render_pink_header("Predictions", "Upload café CSVs to view trends and generate a forecast.")
 
     st.markdown("### Upload files")
     coffee_file = st.file_uploader("Coffee Sales CSV", type=["csv"], key="coffee_upload")
     croissant_file = st.file_uploader("Croissant Sales CSV", type=["csv"], key="croissant_upload")
+
+    # ---- NEW: horizon toggle (4 or 8 weeks) ----
+    horizon_weeks = st.radio("Forecast horizon", [4, 8], index=0, horizontal=True)
+    forecast_days = int(horizon_weeks) * 7
 
     mode = st.radio(
         "Prediction mode",
@@ -1198,18 +1204,18 @@ def page_predictions_dashboard() -> None:
         amount_to_sell = int(max(0, daily_total.tail(14).mean() * 7)) if len(daily_total) else 0
         st.markdown(f"### Suggested weekly target: **{amount_to_sell:,} units**")
 
-    st.subheader("Forecast (next 4 weeks)")
+    st.subheader(f"Forecast (next {horizon_weeks} weeks)")
 
     if mode == "AI (Heuristic)":
-        pred_raw = simple_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw = simple_forecast(daily_total, days=forecast_days)
         model_info = {"ok": True, "type": "heuristic"}
     elif mode == "ML (Linear Regression)":
-        pred_raw, model_info = linear_regression_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw, model_info = linear_regression_forecast(daily_total, days=forecast_days)
     else:
-        pred_raw, model_info = random_forest_forecast(daily_total, days=FORECAST_DAYS)
+        pred_raw, model_info = random_forest_forecast(daily_total, days=forecast_days)
 
     last_date = daily_total.index.max()
-    future_index = pd.date_range(last_date + pd.Timedelta(days=1), periods=FORECAST_DAYS, freq="D")
+    future_index = pd.date_range(last_date + pd.Timedelta(days=1), periods=forecast_days, freq="D")
 
     pred_series = pd.Series(pred_raw["predicted"].values, index=future_index)
     band_df = make_pred_band(pred_series, daily_total)
@@ -1223,9 +1229,9 @@ def page_predictions_dashboard() -> None:
     out = band_df.reset_index().rename(columns={"index": "date"})
     csv_bytes = out.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Download 4-week forecast (CSV)",
+        f"Download {horizon_weeks}-week forecast (CSV)",
         data=csv_bytes,
-        file_name="prediction_next_4_weeks.csv",
+        file_name=f"prediction_next_{horizon_weeks}_weeks.csv",
         mime="text/csv",
     )
 
