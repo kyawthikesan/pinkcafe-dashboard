@@ -1,9 +1,11 @@
 # dashboardfoodwastage.py
-# Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Manager/Staff roles + Sales entry + Predictions from uploaded CSVs)
+# Bristol Pink Café – Streamlit Dashboard (BLACKPINK styling + Admin/Manager/Staff roles + Sales entry + Predictions from uploaded CSVs)
 #
 # What you need in the project folder:
 #   - dashboardfoodwastage.py  (this file)
 #   - product_prices.csv       (teacher-provided prices; auto-template created if missing)
+#   - users.csv                (auto-created if missing; stores hashed passwords)
+#   - sales_entries.csv        (auto-created when staff save sales)
 #
 # Predictions page expects TWO CSV uploads:
 #   1) Coffee CSV: "Pink CoffeeSales March - Oct 2025.csv"  (weird first-row product names)
@@ -14,6 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Tuple
+import hashlib
 
 import numpy as np
 import pandas as pd
@@ -37,13 +40,7 @@ except Exception:
 FORECAST_DAYS = 28
 PRICE_FILE = Path("product_prices.csv")
 SALES_LOG = Path("sales_entries.csv")
-
-# Demo users (replace later with secrets/hashes if needed)
-# username is case-insensitive
-DEMO_USERS = {
-    "manager": {"password": "manager123", "role": "manager"},
-    "staff": {"password": "staff123", "role": "staff"},
-}
+USERS_FILE = Path("users.csv")
 
 
 # ----------------------------
@@ -262,7 +259,163 @@ def make_pred_band(pred: pd.Series, recent_actual: pd.Series) -> pd.DataFrame:
 
 
 # ----------------------------
-# Auth (simple, demo)
+# Users DB (CSV) + Password hashing
+# ----------------------------
+def _pw_hash(password: str, salt: str) -> str:
+    """
+    Hash password using PBKDF2-HMAC-SHA256.
+    Stored format: pbkdf2_sha256$iterations$salt$hash
+    """
+    password_b = (password or "").encode("utf-8")
+    salt_b = (salt or "").encode("utf-8")
+    iterations = 200_000
+    dk = hashlib.pbkdf2_hmac("sha256", password_b, salt_b, iterations)
+    return f"pbkdf2_sha256${iterations}${salt}${dk.hex()}"
+
+
+def _pw_verify(password: str, stored: str) -> bool:
+    try:
+        algo, iters, salt, hx = stored.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        iterations = int(iters)
+        test = hashlib.pbkdf2_hmac(
+            "sha256",
+            (password or "").encode("utf-8"),
+            salt.encode("utf-8"),
+            iterations,
+        ).hex()
+        return test == hx
+    except Exception:
+        return False
+
+
+def ensure_users_file() -> None:
+    """
+    Creates users.csv with default accounts if missing.
+    CHANGE the default admin password immediately.
+    """
+    if USERS_FILE.exists():
+        return
+
+    default = pd.DataFrame(
+        [
+            {"username": "admin", "role": "admin", "pw_hash": _pw_hash("admin123", "salt_admin")},
+            {"username": "manager", "role": "manager", "pw_hash": _pw_hash("manager123", "salt_manager")},
+            {"username": "staff", "role": "staff", "pw_hash": _pw_hash("staff123", "salt_staff")},
+        ]
+    )
+    default.to_csv(USERS_FILE, index=False)
+
+
+@st.cache_data
+def load_users() -> pd.DataFrame:
+    ensure_users_file()
+    dfu = pd.read_csv(USERS_FILE)
+
+    for c in ["username", "role", "pw_hash"]:
+        if c not in dfu.columns:
+            dfu[c] = ""
+
+    dfu["username"] = dfu["username"].astype(str).str.strip().str.lower()
+    dfu["role"] = dfu["role"].astype(str).str.strip().str.lower()
+    dfu["pw_hash"] = dfu["pw_hash"].astype(str).str.strip()
+
+    dfu = dfu[dfu["username"] != ""].drop_duplicates(subset=["username"], keep="last")
+    return dfu.reset_index(drop=True)
+
+
+def save_users(dfu: pd.DataFrame) -> None:
+    out = dfu.copy()
+    out["username"] = out["username"].astype(str).str.strip().str.lower()
+    out["role"] = out["role"].astype(str).str.strip().str.lower()
+    out["pw_hash"] = out["pw_hash"].astype(str).str.strip()
+    out = out[out["username"] != ""].drop_duplicates(subset=["username"], keep="last")
+    out.to_csv(USERS_FILE, index=False)
+    st.cache_data.clear()
+
+
+def get_user_record(username: str) -> dict | None:
+    dfu = load_users()
+    u = (username or "").strip().lower()
+    hit = dfu[dfu["username"] == u]
+    if hit.empty:
+        return None
+    r = hit.iloc[0].to_dict()
+    return {"username": r["username"], "role": r["role"], "pw_hash": r["pw_hash"]}
+
+
+def create_user(username: str, password: str, role: str) -> tuple[bool, str]:
+    u = (username or "").strip().lower()
+    role = (role or "").strip().lower()
+
+    if not u:
+        return False, "Username is required."
+    if role not in {"admin", "manager", "staff"}:
+        return False, "Role must be admin, manager, or staff."
+    if len(password or "") < 6:
+        return False, "Password must be at least 6 characters."
+
+    dfu = load_users()
+    if (dfu["username"] == u).any():
+        return False, "That username already exists."
+
+    salt = f"salt_{u}"
+    pw_hash = _pw_hash(password, salt)
+    dfu = pd.concat([dfu, pd.DataFrame([{"username": u, "role": role, "pw_hash": pw_hash}])], ignore_index=True)
+    save_users(dfu)
+    return True, "User created."
+
+
+def update_password(username: str, new_password: str) -> tuple[bool, str]:
+    u = (username or "").strip().lower()
+    if len(new_password or "") < 6:
+        return False, "Password must be at least 6 characters."
+
+    dfu = load_users()
+    m = dfu["username"] == u
+    if not m.any():
+        return False, "User not found."
+
+    salt = f"salt_{u}"
+    dfu.loc[m, "pw_hash"] = _pw_hash(new_password, salt)
+    save_users(dfu)
+    return True, "Password updated."
+
+
+def update_role(username: str, new_role: str) -> tuple[bool, str]:
+    u = (username or "").strip().lower()
+    new_role = (new_role or "").strip().lower()
+    if new_role not in {"admin", "manager", "staff"}:
+        return False, "Role must be admin, manager, or staff."
+
+    dfu = load_users()
+    m = dfu["username"] == u
+    if not m.any():
+        return False, "User not found."
+
+    dfu.loc[m, "role"] = new_role
+    save_users(dfu)
+    return True, "Role updated."
+
+
+def delete_user(username: str) -> tuple[bool, str]:
+    u = (username or "").strip().lower()
+    if u == "admin":
+        return False, "You can't delete the default admin account."
+
+    dfu = load_users()
+    before = len(dfu)
+    dfu = dfu[dfu["username"] != u].copy()
+    if len(dfu) == before:
+        return False, "User not found."
+
+    save_users(dfu)
+    return True, "User deleted."
+
+
+# ----------------------------
+# Auth (file-backed)
 # ----------------------------
 def login_gate() -> bool:
     if "logged_in" not in st.session_state:
@@ -280,14 +433,15 @@ def login_gate() -> bool:
         st.markdown("## Login")
 
         with st.form("bp_login_form", clear_on_submit=False):
-            username = st.text_input("Username", placeholder="manager or staff")
+            username = st.text_input("Username", placeholder="admin, manager or staff")
             password = st.text_input("Password", type="password", placeholder="••••••••")
             submit = st.form_submit_button("Log in")
 
         if submit:
             u = (username or "").strip().lower()
-            user = DEMO_USERS.get(u)
-            if user and password == user["password"]:
+            user = get_user_record(u)
+
+            if user and _pw_verify(password, user["pw_hash"]):
                 st.session_state.logged_in = True
                 st.session_state.username = u
                 st.session_state.role = user["role"]
@@ -297,7 +451,7 @@ def login_gate() -> bool:
                 st.error("Invalid username or password.")
 
         st.markdown('<div class="bp-divider"></div>', unsafe_allow_html=True)
-        st.caption("Demo accounts (change later): manager/manager123 and staff/staff123")
+        st.caption("Default accounts (change immediately): admin/admin123, manager/manager123, staff/staff123")
         st.markdown("</div>", unsafe_allow_html=True)
 
     return False
@@ -349,6 +503,43 @@ def append_sale(row: dict) -> None:
         df.to_csv(SALES_LOG, index=False)
 
 
+def _row_fingerprint(row: pd.Series) -> str:
+    """
+    Stable-ish per-row identifier (not stored). Used to select rows for edit/delete.
+    """
+    parts = [
+        str(row.get("date", "")),
+        str(row.get("product", "")),
+        str(row.get("qty", "")),
+        str(row.get("unit_price", "")),
+        str(row.get("staff_user", "")),
+        str(row.get("created_at", "")),
+    ]
+    raw = "||".join(parts).encode("utf-8", errors="ignore")
+    return hashlib.sha1(raw).hexdigest()[:12]
+
+
+def save_sales_log(df: pd.DataFrame) -> None:
+    """
+    Overwrites the sales log CSV with the expected columns.
+    """
+    cols = ["date", "product", "qty", "unit_price", "staff_user", "created_at"]
+    out = df.copy()
+
+    for c in cols:
+        if c not in out.columns:
+            out[c] = ""
+
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.date.astype(str)
+    out["product"] = out["product"].astype(str).str.strip()
+    out["qty"] = pd.to_numeric(out["qty"], errors="coerce").fillna(0).astype(int)
+    out["unit_price"] = pd.to_numeric(out["unit_price"], errors="coerce").fillna(0.0).astype(float)
+    out["staff_user"] = out["staff_user"].astype(str).str.strip().str.lower()
+    out["created_at"] = out["created_at"].astype(str).str.strip()
+
+    out[cols].to_csv(SALES_LOG, index=False)
+
+
 def load_sales_log() -> pd.DataFrame:
     cols = ["date", "product", "qty", "unit_price", "staff_user", "created_at"]
     if not SALES_LOG.exists():
@@ -364,6 +555,7 @@ def load_sales_log() -> pd.DataFrame:
     df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(0.0)
     df["staff_user"] = df["staff_user"].astype(str).str.strip().str.lower()
     df["product"] = df["product"].astype(str).str.strip()
+    df["created_at"] = df["created_at"].astype(str).str.strip()
     df["total"] = df["qty"] * df["unit_price"]
     return df
 
@@ -687,7 +879,7 @@ def page_manager_sales_overview() -> None:
 
 
 def page_manager_sales_records() -> None:
-    render_pink_header("Manager • Sales Records", "Filter, review, and export the sales log.")
+    render_pink_header("Manager • Sales Records", "Filter, review, export, and manage (edit/delete) the sales log.")
 
     df = load_sales_log()
     if df.empty:
@@ -702,8 +894,6 @@ def page_manager_sales_records() -> None:
 
     with st.sidebar:
         st.markdown("### Filters (radios)")
-
-        # RADIO instead of dropdowns
         f_product = st.radio("Product", ["(All)"] + products, index=0)
         f_staff = st.radio("Staff user", ["(All)"] + staff_users, index=0)
 
@@ -734,6 +924,176 @@ def page_manager_sales_records() -> None:
         file_name="sales_filtered.csv",
         mime="text/csv",
     )
+
+    st.write("")
+    st.markdown("### Manage entries (edit / delete)")
+    st.caption("Select an entry from the filtered results, then edit fields or delete it.")
+
+    if out.empty:
+        st.info("No rows match the current filters, so there is nothing to edit or delete.")
+        return
+
+    out = out.copy()
+    out["_row_id"] = out.apply(_row_fingerprint, axis=1)
+
+    def _label(r: pd.Series) -> str:
+        d = pd.to_datetime(r["date"], errors="coerce")
+        d_str = d.date().isoformat() if pd.notna(d) else str(r.get("date", ""))
+        return f"{d_str} | {r.get('product','')} | qty {int(r.get('qty',0))} | £{float(r.get('unit_price',0.0)):.2f} | {r.get('staff_user','')} | {str(r.get('created_at',''))}"
+
+    options = out["_row_id"].tolist()
+    labels = {rid: _label(out.loc[idx]) for idx, rid in zip(out.index, options)}
+
+    selected_id = st.radio(
+        "Select a record",
+        options=options,
+        format_func=lambda rid: labels.get(rid, rid),
+    )
+
+    selected_filtered_row = out[out["_row_id"] == selected_id].iloc[0]
+    selected_index = selected_filtered_row.name
+    current = df.loc[selected_index].copy()
+
+    price_map = load_price_map()
+    known_products = sorted(set(list(price_map.keys()) + df["product"].dropna().astype(str).tolist()))
+
+    st.markdown('<div class="bp-card">', unsafe_allow_html=True)
+    st.markdown('<div class="bp-badge">Manager actions</div>', unsafe_allow_html=True)
+
+    cA, cB = st.columns([3, 1])
+    with cA:
+        st.markdown("#### Edit selected entry")
+
+        with st.form("manager_edit_form", clear_on_submit=False):
+            cur_date = pd.to_datetime(current["date"], errors="coerce")
+            default_date = cur_date.date() if pd.notna(cur_date) else date.today()
+            new_date = st.date_input("Date", value=default_date, key="mgr_edit_date")
+
+            cur_product = str(current.get("product", "")).strip()
+            if cur_product not in known_products and cur_product:
+                known_products = [cur_product] + known_products
+            prod_index = max(0, known_products.index(cur_product)) if cur_product in known_products else 0
+            new_product = st.radio("Product", known_products, index=prod_index, key="mgr_edit_product")
+
+            suggested_price = float(price_map[new_product]) if new_product in price_map else float(
+                current.get("unit_price", 0.0)
+            )
+            new_unit_price = st.number_input(
+                "Unit price (£)",
+                min_value=0.0,
+                step=0.05,
+                value=float(suggested_price),
+                key="mgr_edit_unit_price",
+            )
+
+            new_qty = st.number_input(
+                "Quantity sold",
+                min_value=0,
+                step=1,
+                value=int(current.get("qty", 0)),
+                key="mgr_edit_qty",
+            )
+
+            new_staff_user = st.text_input(
+                "Staff user (username)",
+                value=str(current.get("staff_user", "")).strip().lower(),
+                key="mgr_edit_staff",
+            )
+
+            new_created_at = st.text_input(
+                "Created at (timestamp string)",
+                value=str(current.get("created_at", "")).strip(),
+                key="mgr_edit_created_at",
+                help="Leave as-is unless you need to correct it.",
+            )
+
+            save_btn = st.form_submit_button("Save changes")
+
+        if save_btn:
+            df2 = df.copy()
+            df2.loc[selected_index, "date"] = pd.to_datetime(str(new_date), errors="coerce")
+            df2.loc[selected_index, "product"] = str(new_product).strip()
+            df2.loc[selected_index, "qty"] = int(new_qty)
+            df2.loc[selected_index, "unit_price"] = float(new_unit_price)
+            df2.loc[selected_index, "staff_user"] = str(new_staff_user).strip().lower()
+            df2.loc[selected_index, "created_at"] = str(new_created_at).strip()
+
+            save_sales_log(df2)
+            st.success("Entry updated.")
+            st.rerun()
+
+    with cB:
+        st.markdown("#### Delete")
+        st.caption("This permanently removes the row from sales_entries.csv.")
+        if st.button("Delete selected entry", type="primary"):
+            df2 = df.drop(index=selected_index).copy()
+            save_sales_log(df2)
+            st.success("Entry deleted.")
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def page_admin_user_management() -> None:
+    render_pink_header("Admin • User Management", "Create accounts, reset passwords, and set roles.")
+
+    dfu = load_users()
+
+    st.subheader("Current users")
+    show = dfu[["username", "role"]].sort_values(["role", "username"])
+    st.dataframe(show, use_container_width=True)
+
+    st.write("")
+    st.markdown("### Create a new user")
+    with st.form("admin_create_user", clear_on_submit=True):
+        new_u = st.text_input("Username (lowercase recommended)")
+        new_role = st.radio("Role", ["staff", "manager", "admin"], horizontal=True)
+        new_pw = st.text_input("Temporary password", type="password")
+        create_btn = st.form_submit_button("Create user")
+
+    if create_btn:
+        ok, msg = create_user(new_u, new_pw, new_role)
+        (st.success if ok else st.error)(msg)
+        if ok:
+            st.rerun()
+
+    st.write("")
+    st.markdown("### Reset password")
+    users = dfu["username"].tolist()
+    if users:
+        target = st.radio("Select user", users, index=0)
+        with st.form("admin_reset_pw", clear_on_submit=True):
+            pw1 = st.text_input("New password", type="password")
+            reset_btn = st.form_submit_button("Update password")
+        if reset_btn:
+            ok, msg = update_password(target, pw1)
+            (st.success if ok else st.error)(msg)
+            if ok:
+                st.rerun()
+    else:
+        st.info("No users found.")
+
+    st.write("")
+    st.markdown("### Change role")
+    if users:
+        target2 = st.radio("User to change role", users, index=0, key="role_user_pick")
+        new_role2 = st.radio("New role", ["staff", "manager", "admin"], horizontal=True, key="new_role_pick")
+        if st.button("Update role"):
+            ok, msg = update_role(target2, new_role2)
+            (st.success if ok else st.error)(msg)
+            if ok:
+                st.rerun()
+
+    st.write("")
+    st.markdown("### Delete user")
+    st.caption("Admin account cannot be deleted.")
+    if users:
+        target3 = st.radio("User to delete", users, index=0, key="delete_user_pick")
+        if st.button("Delete user", type="primary"):
+            ok, msg = delete_user(target3)
+            (st.success if ok else st.error)(msg)
+            if ok:
+                st.rerun()
 
 
 def page_predictions_dashboard() -> None:
@@ -886,12 +1246,20 @@ with st.sidebar:
     logout_button()
     st.markdown("---")
 
-    if st.session_state.role == "manager":
+    if st.session_state.role == "admin":
+        page = st.radio("Navigation", ["User Management", "Sales Overview", "Sales Records", "Predictions"], index=0)
+    elif st.session_state.role == "manager":
         page = st.radio("Navigation", ["Sales Overview", "Sales Records", "Predictions"], index=0)
     else:
         page = st.radio("Navigation", ["Record Sale", "Predictions"], index=0)
 
-if st.session_state.role == "manager" and page == "Sales Overview":
+if st.session_state.role == "admin" and page == "User Management":
+    page_admin_user_management()
+elif st.session_state.role == "admin" and page == "Sales Overview":
+    page_manager_sales_overview()
+elif st.session_state.role == "admin" and page == "Sales Records":
+    page_manager_sales_records()
+elif st.session_state.role == "manager" and page == "Sales Overview":
     page_manager_sales_overview()
 elif st.session_state.role == "manager" and page == "Sales Records":
     page_manager_sales_records()
