@@ -1,13 +1,3 @@
-Below is a **copy-paste updated README.md** that:
-
-* reflects your new **multi-file structure** (no longer “one big .py”)
-* explains **how running it changes** (`python -m streamlit run app.py`)
-* includes **two system diagrams** (Mermaid) you can paste directly into GitHub README
-* adds clearer setup + troubleshooting for the modular version
-
----
-
-## ✅ Updated `README.md` (with diagrams + multi-file run instructions)
 
 ````markdown
 # Bristol Pink Café Dashboard
@@ -147,16 +137,36 @@ This project uses simple demo accounts (change later if needed):
 
 ```mermaid
 flowchart TD
-  U[User] -->|Browser| ST[Streamlit App (app.py)]
-  ST --> AUTH[auth.py<br/>Login + Roles]
-  ST --> THEME[theme.py<br/>Theme + UI helpers]
-  ST --> PAGES[pages/*<br/>Role pages]
-  PAGES --> STORAGE[storage.py<br/>CSV read/write]
-  PAGES --> FORE[forecasting.py<br/>Parsing + Forecast models]
-  STORAGE --> CSV1[users.csv]
-  STORAGE --> CSV2[product_prices.csv]
-  STORAGE --> CSV3[sales_entries.csv]
-  FORE --> UPLOADS[Uploaded Coffee/Croissant CSVs]
+    U[User]
+    B[Browser]
+    ST[Streamlit App<br/>app.py]
+
+    AUTH[Authentication<br/>auth.py]
+    THEME[Theme & UI<br/>theme.py]
+    PAGES[Role Pages<br/>pages folder]
+    STORAGE[CSV Storage<br/>storage.py]
+    FORE[Forecasting Engine<br/>forecasting.py]
+
+    CSV_USERS[users.csv]
+    CSV_PRICES[product_prices.csv]
+    CSV_SALES[sales_entries.csv]
+    UPLOADS[Uploaded Sales CSVs]
+
+    U --> B
+    B --> ST
+
+    ST --> AUTH
+    ST --> THEME
+    ST --> PAGES
+
+    PAGES --> STORAGE
+    PAGES --> FORE
+
+    STORAGE --> CSV_USERS
+    STORAGE --> CSV_PRICES
+    STORAGE --> CSV_SALES
+
+    FORE --> UPLOADS
 ```
 
 ---
@@ -287,9 +297,3 @@ If it appears, confirm your app calls:
 
 ```
 
----
-
-If you want, I can also:
-- generate a **third Mermaid diagram** that shows the **data flow for forecasting** (Upload → Clean → Daily totals → Holdout eval → Forecast output)
-- or produce a **proper “Architecture” section** for your report (aims, design choices, justification).
-```
