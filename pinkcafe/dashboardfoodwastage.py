@@ -32,6 +32,31 @@ PRICE_FILE = Path("product_prices.csv")
 SALES_LOG = Path("sales_entries.csv")
 USERS_FILE = Path("users.csv")
 
+st.set_page_config(page_title="Bristol Pink Café Dashboard", layout="wide")
+
+st.markdown(
+    """
+    <style>
+      /* Make the very top header bar transparent / gone */
+      [data-testid="stHeader"] {
+        background: rgba(0,0,0,0) !important;
+        height: 0px !important;
+      }
+
+      /* Remove the default top padding/margin Streamlit adds */
+      .block-container {
+        padding-top: 0rem !important;
+      }
+
+      /* Ensure the app background is dark all the way to the top */
+      [data-testid="stAppViewContainer"],
+      [data-testid="stApp"] {
+        background: #000 !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ----------------------------
 # BLACKPINK Theme (higher contrast + more professional)
@@ -245,6 +270,79 @@ def make_pred_band(pred: pd.Series, recent_actual: pd.Series) -> pd.DataFrame:
     lower = (pred - spread).clip(lower=0)
     upper = (pred + spread).clip(lower=0)
     return pd.DataFrame({"predicted": pred, "lower": lower, "upper": upper})
+
+
+# ----------------------------
+# Model evaluation (NEW)
+# ----------------------------
+def _safe_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    denom = np.where(y_true == 0, np.nan, y_true)
+    mape = np.nanmean(np.abs((y_true - y_pred) / denom)) * 100.0
+    return float(mape) if np.isfinite(mape) else float("nan")
+
+
+def evaluate_models_time_holdout(
+    daily_total: pd.Series,
+    holdout_days: int = 14,
+    modes: list[str] | None = None,
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Time-based evaluation:
+      - train on all but the last `holdout_days`
+      - predict the next `holdout_days`
+      - compute MAE / RMSE / MAPE on the holdout period
+
+    Returns:
+      (metrics_df, best_mode_by_rmse)
+    """
+    if modes is None:
+        modes = ["AI (Heuristic)", "ML (Linear Regression)", "AI (Random Forest)", "ML (Gradient Boosting)"]
+
+    s = daily_total.copy().sort_index()
+    s = s.asfreq("D").fillna(0)
+
+    if len(s) < (holdout_days + 10):
+        # not enough to evaluate reliably
+        cols = ["MAE", "RMSE", "MAPE_%", "Notes"]
+        df = pd.DataFrame(index=modes, columns=cols)
+        df["Notes"] = f"Not enough data for holdout ({holdout_days}d). Need ~{holdout_days+10}+ days."
+        return df.reset_index(names="Model"), ""
+
+    train = s.iloc[:-holdout_days]
+    test = s.iloc[-holdout_days:]
+
+    rows = []
+    for m in modes:
+        pred_s, info = forecast_series_for_mode(train, holdout_days, m)
+        # align prediction to test index
+        pred_s = pred_s.reindex(test.index).fillna(0)
+
+        y_true = test.values.astype(float)
+        y_pred = pred_s.values.astype(float)
+
+        mae = float(np.mean(np.abs(y_true - y_pred)))
+        rmse = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+        mape = _safe_mape(y_true, y_pred)
+
+        note = ""
+        if isinstance(info, dict) and not info.get("ok", True):
+            note = str(info.get("reason", ""))
+
+        rows.append(
+            {
+                "Model": m,
+                "MAE": mae,
+                "RMSE": rmse,
+                "MAPE_%": mape,
+                "Notes": note,
+            }
+        )
+
+    metrics = pd.DataFrame(rows).sort_values("RMSE", ascending=True).reset_index(drop=True)
+    best_mode = str(metrics.iloc[0]["Model"]) if not metrics.empty else ""
+    return metrics, best_mode
 
 
 # ----------------------------
@@ -1171,6 +1269,41 @@ def page_admin_user_management() -> None:
 def page_predictions_dashboard() -> None:
     render_pink_header("Predictions", "Upload café CSVs to view trends and generate a forecast.")
 
+    # ---- NEW: Why models section (for dashboard + report) ----
+    with st.expander("Why these prediction models? (method justification)"):
+        st.markdown(
+            """
+**Why we use multiple models**
+- Food demand varies because of **weekday patterns, seasonality, events, and randomness**. No single model is best in all situations.
+- We implement a **baseline heuristic** plus two **machine-learning models** to compare accuracy and robustness.
+- This supports the project aim: **reduce food waste** by selecting a forecasting method that matches the data.
+
+**1) AI (Heuristic) — baseline**
+- Uses recent moving average + a simple trend.
+- Strength: **fast, transparent, and stable** even with small datasets.
+- Weakness: cannot learn complex patterns (e.g., strong weekday effects).
+
+**2) ML (Linear Regression) — interpretable trend model**
+- Fits a straight-line trend over time.
+- Strength: very **interpretable** (slope per day), good when demand changes steadily.
+- Weakness: assumes a linear relationship; can underperform when demand is non-linear or seasonal.
+
+**3) AI (Random Forest) — non-linear model**
+- Learns from lagged sales (yesterday, last week, etc.) and weekday features.
+- Strength: captures **non-linear** effects and interactions (e.g., weekends vs weekdays).
+- Weakness: needs more data; can overfit if data is limited.
+
+**4) ML (Gradient Boosting) — strong predictive learner**
+- Boosted trees can be very accurate with structured tabular features (lags + weekday).
+- Strength: often **high accuracy** with well-chosen features.
+- Weakness: still needs enough history; less interpretable than linear regression.
+
+**How we choose a “best” model**
+- We use a **time-based holdout** (e.g., last 14 days) and compare **MAE / RMSE / MAPE**.
+- The model with the lowest error is recommended for operational use, while others remain available for comparison.
+            """
+        )
+
     st.markdown("### Upload files")
     coffee_file = st.file_uploader("Coffee Sales CSV", type=["csv"], key="coffee_upload")
     croissant_file = st.file_uploader("Croissant Sales CSV", type=["csv"], key="croissant_upload")
@@ -1274,10 +1407,30 @@ def page_predictions_dashboard() -> None:
         amount_to_sell = int(max(0, daily_total.tail(14).mean() * 7)) if len(daily_total) else 0
         st.markdown(f"### Suggested weekly target: **{amount_to_sell:,} units**")
 
+    # ---- NEW: Model comparison metrics (time-based holdout) ----
+    st.subheader("Model accuracy comparison (holdout evaluation)")
+    holdout_days = st.slider("Holdout days (evaluate on the most recent days)", 7, 28, 14, step=7)
+    metrics_df, best_mode = evaluate_models_time_holdout(daily_total, holdout_days=holdout_days, modes=modes)
+
+    if best_mode:
+        st.success(f"Recommended model (lowest RMSE on last {holdout_days} days): **{best_mode}**")
+    else:
+        st.info("Not enough data to run holdout evaluation reliably.")
+
+    # show metrics nicely
+    if not metrics_df.empty:
+        show_metrics = metrics_df.copy()
+        # friendly formatting
+        for c in ["MAE", "RMSE", "MAPE_%"]:
+            if c in show_metrics.columns:
+                show_metrics[c] = pd.to_numeric(show_metrics[c], errors="coerce")
+
+        st.dataframe(show_metrics, use_container_width=True)
+
     st.subheader(f"Forecast (next {horizon_weeks} weeks)")
 
     # ---- Comparison overlay chart (all models) ----
-    compare_models = st.checkbox("Compare AI vs ML forecasts", value=True)
+    compare_models = st.checkbox("Compare AI vs ML forecasts (chart)", value=True)
     if compare_models:
         compare_modes = ["AI (Heuristic)", "ML (Linear Regression)", "AI (Random Forest)", "ML (Gradient Boosting)"]
         preds = {}
@@ -1318,7 +1471,6 @@ def page_predictions_dashboard() -> None:
 # ----------------------------
 # App start
 # ----------------------------
-st.set_page_config(page_title="Bristol Pink Café Dashboard", layout="wide")
 inject_blackpink_theme()
 
 if not login_gate():
@@ -1355,3 +1507,4 @@ else:
 
 if not PRICE_FILE.exists():
     st.warning("product_prices.csv was not found and a template should have been created. Please check your folder.")
+
