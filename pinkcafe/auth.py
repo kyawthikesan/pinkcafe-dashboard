@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from constants import USERS_FILE
-from theme import theme_options  # [(key,label), ...]
+from theme import theme_options, apply_theme  # ✅ no FONT_STACKS
 
 
 def _pw_hash(password: str, salt: str) -> str:
@@ -154,14 +154,21 @@ def delete_user(username: str) -> tuple[bool, str]:
 
 
 def login_gate() -> bool:
+    # Session init
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.role = None
 
-    # Ensure theme exists even before login
+    # Theme defaults (pre-login safe)
     if "theme_key" not in st.session_state:
         st.session_state.theme_key = "blackpink_pro"
+
+    # Accessibility defaults (pre-login safe)
+    if "a11y_text_scale" not in st.session_state:
+        st.session_state.a11y_text_scale = 1.0
+    if "a11y_reduced_motion" not in st.session_state:
+        st.session_state.a11y_reduced_motion = False
 
     if st.session_state.logged_in:
         return True
@@ -171,7 +178,39 @@ def login_gate() -> bool:
         st.markdown('<div class="bp-card">', unsafe_allow_html=True)
         st.markdown('<div class="bp-badge">BLACKPINK • Café Portal</div>', unsafe_allow_html=True)
 
-        # ✅ Theme toggle (pill-style)
+        # ✅ Accessibility controls on login screen (NO font selector)
+        with st.expander("Accessibility", expanded=False):
+            st.caption("These settings apply immediately (helpful before logging in).")
+
+            new_scale = st.slider(
+                "Text size",
+                min_value=0.90,
+                max_value=1.50,
+                value=float(st.session_state.a11y_text_scale),
+                step=0.05,
+            )
+
+            new_motion = st.checkbox(
+                "Reduce motion (less animation)",
+                value=bool(st.session_state.a11y_reduced_motion),
+            )
+
+            changed_a11y = (
+                new_scale != st.session_state.a11y_text_scale
+                or new_motion != st.session_state.a11y_reduced_motion
+            )
+            if changed_a11y:
+                st.session_state.a11y_text_scale = float(new_scale)
+                st.session_state.a11y_reduced_motion = bool(new_motion)
+
+                apply_theme(
+                    st.session_state.theme_key,
+                    text_scale=st.session_state.a11y_text_scale,
+                    reduced_motion=st.session_state.a11y_reduced_motion,
+                )
+                st.rerun()
+
+        # Theme toggle
         opts = theme_options()  # [(key,label), ...]
         keys = [k for k, _ in opts]
         labels = [lbl for _, lbl in opts]
@@ -190,6 +229,11 @@ def login_gate() -> bool:
         chosen_key = keys[labels.index(chosen_label)]
         if chosen_key != st.session_state.theme_key:
             st.session_state.theme_key = chosen_key
+            apply_theme(
+                st.session_state.theme_key,
+                text_scale=st.session_state.a11y_text_scale,
+                reduced_motion=st.session_state.a11y_reduced_motion,
+            )
             st.rerun()
 
         st.markdown("## Login")

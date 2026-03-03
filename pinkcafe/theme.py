@@ -1,10 +1,9 @@
 import streamlit as st
 
 # ----------------------------
-# Theme registry (EDIT THIS to add themes)
+# Theme registry
 # ----------------------------
 THEMES = {
-    # Your current look, but parameterised
     "blackpink_pro": {
         "label": "BLACKPINK ",
         "mode": "dark",
@@ -23,128 +22,97 @@ THEMES = {
             "--bp-shadow": "0 14px 44px rgba(0,0,0,0.62)",
             "--bp-radius": "18px",
             "--bp-radius-sm": "12px",
-            # gradient accent strength
             "--bp-accent-a": "rgba(255,105,180,0.10)",
             "--bp-accent-b": "rgba(255,45,149,0.08)",
             "--bp-grad-bottom": "#000000",
-            # button text (important for contrast)
             "--bp-button-text": "#0A0A0F",
             "--bp-input-bg": "rgba(10,10,15,0.72)",
         },
     },
 
-    # Higher accessibility contrast, still dark + pink accents (improved)
-"high_contrast": {
-    "label": "High Contrast Dark ",
-    "mode": "dark",
-    "vars": {
-        # Backgrounds: avoid pure black to reduce eye strain
-        "--bp-bg": "#0B0B10",
-        "--bp-bg-2": "#11111A",
-        "--bp-grad-bottom": "#07070B",
+    "high_contrast": {
+        "label": "High Contrast Dark ",
+        "mode": "dark",
+        "vars": {
+            "--bp-bg": "#0B0B10",
+            "--bp-bg-2": "#11111A",
+            "--bp-grad-bottom": "#07070B",
 
-        # Surfaces: slightly lighter than bg so cards separate clearly
-        "--bp-surface": "rgba(255,255,255,0.06)",
-        "--bp-surface-2": "rgba(255,255,255,0.09)",
+            "--bp-surface": "rgba(255,255,255,0.06)",
+            "--bp-surface-2": "rgba(255,255,255,0.09)",
 
-        # Borders: mostly neutral, pink used as accent
-        "--bp-border": "rgba(255,255,255,0.14)",
-        "--bp-border-strong": "rgba(255,45,149,0.55)",
+            "--bp-border": "rgba(255,255,255,0.14)",
+            "--bp-border-strong": "rgba(255,45,149,0.55)",
 
-        # Text: crisp white + sensible hierarchy
-        "--bp-text": "#F6F7FB",
-        "--bp-text-dim": "rgba(246,247,251,0.86)",
-        "--bp-text-mute": "rgba(246,247,251,0.68)",
+            "--bp-text": "#F6F7FB",
+            "--bp-text-dim": "rgba(246,247,251,0.86)",
+            "--bp-text-mute": "rgba(246,247,251,0.68)",
 
-        # Accents: slightly less neon, more “premium”
-        "--bp-pink": "#FF2D95",
-        "--bp-pink-2": "#FF6BBE",
+            "--bp-pink": "#FF2D95",
+            "--bp-pink-2": "#FF6BBE",
 
-        # Shadows: cleaner, less muddy
-        "--bp-shadow": "0 14px 40px rgba(0,0,0,0.65)",
+            "--bp-shadow": "0 14px 40px rgba(0,0,0,0.65)",
 
-        # Radii
-        "--bp-radius": "18px",
-        "--bp-radius-sm": "12px",
+            "--bp-radius": "18px",
+            "--bp-radius-sm": "12px",
 
-        # Accent fills for subtle highlights / chips
-        "--bp-accent-a": "rgba(255,45,149,0.16)",
-        "--bp-accent-b": "rgba(255,107,190,0.12)",
+            "--bp-accent-a": "rgba(255,45,149,0.16)",
+            "--bp-accent-b": "rgba(255,107,190,0.12)",
 
-        # Inputs: darker than surface so they look “editable”
-        "--bp-input-bg": "rgba(12,12,18,0.90)",
-
-        # Button text: on pink buttons use near-black for contrast
-        "--bp-button-text": "#0B0B10",
+            "--bp-input-bg": "rgba(12,12,18,0.90)",
+            "--bp-button-text": "#0B0B10",
+        },
     },
-},
 
-# Light theme for report-style viewing (improved)
-"light_clean": {
-    "label": "Light ",
-    "mode": "light",
-    "vars": {
-        # Backgrounds: slightly tinted so it doesn't feel sterile
-        "--bp-bg": "#FFFFFF",
-        "--bp-bg-2": "#F7F7FB",
-        "--bp-grad-bottom": "#FFFFFF",
+    "light_clean": {
+        "label": "Light ",
+        "mode": "light",
+        "vars": {
+            "--bp-bg": "#FFFFFF",
+            "--bp-bg-2": "#F7F7FB",
+            "--bp-grad-bottom": "#FFFFFF",
 
-        # Surfaces: soft elevation
-        "--bp-surface": "rgba(11,11,16,0.04)",
-        "--bp-surface-2": "rgba(11,11,16,0.06)",
+            "--bp-surface": "rgba(11,11,16,0.04)",
+            "--bp-surface-2": "rgba(11,11,16,0.06)",
 
-        # Borders: neutral base, pink accent
-        "--bp-border": "rgba(11,11,16,0.12)",
-        "--bp-border-strong": "rgba(255,45,149,0.40)",
+            "--bp-border": "rgba(11,11,16,0.12)",
+            "--bp-border-strong": "rgba(255,45,149,0.40)",
 
-        # Text: deep neutral (not pure black)
-        "--bp-text": "#0B0B10",
-        "--bp-text-dim": "rgba(11,11,16,0.82)",
-        "--bp-text-mute": "rgba(11,11,16,0.62)",
+            "--bp-text": "#0B0B10",
+            "--bp-text-dim": "rgba(11,11,16,0.82)",
+            "--bp-text-mute": "rgba(11,11,16,0.62)",
 
-        # Accents: consistent with dark theme
-        "--bp-pink": "#FF2D95",
-        "--bp-pink-2": "#FF6BBE",
+            "--bp-pink": "#FF2D95",
+            "--bp-pink-2": "#FF6BBE",
 
-        # Shadows: subtle but present
-        "--bp-shadow": "0 12px 30px rgba(11,11,16,0.10)",
+            "--bp-shadow": "0 12px 30px rgba(11,11,16,0.10)",
 
-        # Radii
-        "--bp-radius": "18px",
-        "--bp-radius-sm": "12px",
+            "--bp-radius": "18px",
+            "--bp-radius-sm": "12px",
 
-        # Accent fills (very light)
-        "--bp-accent-a": "rgba(255,45,149,0.10)",
-        "--bp-accent-b": "rgba(255,107,190,0.08)",
+            "--bp-accent-a": "rgba(255,45,149,0.10)",
+            "--bp-accent-b": "rgba(255,107,190,0.08)",
 
-        # Inputs: white but slightly separated
-        "--bp-input-bg": "rgba(255,255,255,0.96)",
-
-        # Button text: on pink buttons, white reads cleanest in light theme
-        "--bp-button-text": "#FFFFFF",
+            "--bp-input-bg": "rgba(255,255,255,0.96)",
+            "--bp-button-text": "#FFFFFF",
+        },
     },
 }
-}
+
 
 # ----------------------------
 # Helpers
 # ----------------------------
 def theme_options():
-    """Returns list of (key, label) in a stable order."""
     keys = list(THEMES.keys())
     return [(k, THEMES[k]["label"]) for k in keys]
 
 
 def _vars_to_css(vars_dict: dict) -> str:
-    # Convert {"--x":"y"} into CSS lines
     return "\n".join([f"  {k}: {v};" for k, v in vars_dict.items()])
 
 
 def inject_header_gap_fix() -> None:
-    """
-    Removes Streamlit's header gap/white bar and forces background to the top.
-    Keep this separate from themes (it is structural).
-    """
     st.markdown(
         """
         <style>
@@ -162,7 +130,6 @@ def inject_header_gap_fix() -> None:
 
 
 def hide_native_multipage_nav() -> None:
-    """Hides Streamlit's auto page dropdown/list."""
     st.markdown(
         """
         <style>
@@ -173,28 +140,48 @@ def hide_native_multipage_nav() -> None:
     )
 
 
-def apply_theme(theme_key: str) -> None:
+def apply_theme(
+    theme_key: str,
+    text_scale: float = 1.0,
+    reduced_motion: bool = False,
+) -> None:
     """
-    Applies a theme from THEMES by injecting variable-driven CSS.
-    Add new themes by adding an entry in THEMES only.
+    Applies a theme from THEMES by injecting variable-driven CSS + accessibility overrides.
+
+    text_scale: 0.9 .. 1.5 recommended
+    reduced_motion: disables most transitions/animations
     """
     theme = THEMES.get(theme_key) or THEMES["blackpink_pro"]
     css_vars = _vars_to_css(theme["vars"])
 
-    # Pick sensible background gradients per mode
-    is_light = theme.get("mode") == "light"
-    app_bg = "var(--bp-bg)" if is_light else "var(--bp-bg)"
+    # Safety clamp
+    try:
+        text_scale = float(text_scale)
+    except Exception:
+        text_scale = 1.0
+    text_scale = max(0.85, min(1.60, text_scale))
+
+    motion_css = ""
+    if reduced_motion:
+        motion_css = """
+        * {
+            transition: none !important;
+            animation: none !important;
+            scroll-behavior: auto !important;
+        }
+        """
 
     st.markdown(
         f"""
         <style>
         :root {{
 {css_vars}
+          --bp-text-scale: {text_scale};
         }}
 
         /* App background */
         [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
-            background: {app_bg} !important;
+            background: var(--bp-bg) !important;
         }}
 
         .stApp {{
@@ -207,8 +194,15 @@ def apply_theme(theme_key: str) -> None:
 
         html, body, [class*="css"] {{
             color: var(--bp-text) !important;
-            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+                         "Apple Color Emoji","Segoe UI Emoji" !important;
+            font-size: calc(16px * var(--bp-text-scale)) !important;
+            line-height: 1.45 !important;
         }}
+
+        h1 {{ font-size: calc(2.00rem * var(--bp-text-scale)) !important; }}
+        h2 {{ font-size: calc(1.50rem * var(--bp-text-scale)) !important; }}
+        h3 {{ font-size: calc(1.20rem * var(--bp-text-scale)) !important; }}
 
         .block-container {{ padding-top: 1.1rem; padding-bottom: 2.6rem; }}
 
@@ -216,8 +210,16 @@ def apply_theme(theme_key: str) -> None:
             color: var(--bp-pink) !important;
             letter-spacing: 0.2px;
         }}
+
         p, li, label, .stMarkdown, .stCaption {{
             color: var(--bp-text-dim) !important;
+        }}
+
+        /* Strong keyboard focus */
+        :focus {{ outline: none; }}
+        :focus-visible {{
+            outline: 3px solid var(--bp-pink-2) !important;
+            outline-offset: 2px !important;
         }}
 
         /* Sidebar */
@@ -249,7 +251,7 @@ def apply_theme(theme_key: str) -> None:
             border: 1px solid var(--bp-border-strong);
             background: linear-gradient(180deg, rgba(255,105,180,0.14) 0%, rgba(0,0,0,0.10) 100%);
             color: var(--bp-text);
-            font-size: 11px;
+            font-size: calc(11px * var(--bp-text-scale));
             font-weight: 800;
             letter-spacing: 0.12em;
             text-transform: uppercase;
@@ -295,10 +297,12 @@ def apply_theme(theme_key: str) -> None:
             color: var(--bp-text) !important;
             border: 1px solid rgba(255,255,255,0.10) !important;
             border-radius: var(--bp-radius-sm) !important;
+            font-size: calc(1rem * var(--bp-text-scale)) !important;
         }}
 
         div[role="radiogroup"] label, .stCheckbox label {{
             color: var(--bp-text-dim) !important;
+            font-size: calc(1rem * var(--bp-text-scale)) !important;
         }}
 
         /* Alerts */
@@ -317,6 +321,7 @@ def apply_theme(theme_key: str) -> None:
         }}
         div[data-testid="stDataFrame"] * {{
             color: var(--bp-text) !important;
+            font-size: calc(0.95rem * var(--bp-text-scale)) !important;
         }}
         div[data-testid="stDataFrame"] thead tr th {{
             background: rgba(255,105,180,0.10) !important;
@@ -328,6 +333,16 @@ def apply_theme(theme_key: str) -> None:
 
         a, a:visited {{ color: rgba(255,182,217,0.95) !important; }}
         a:hover {{ color: var(--bp-pink) !important; }}
+
+        /* Respect reduced motion preference + toggle */
+        @media (prefers-reduced-motion: reduce) {{
+            * {{
+                transition: none !important;
+                animation: none !important;
+                scroll-behavior: auto !important;
+            }}
+        }}
+        {motion_css}
         </style>
         """,
         unsafe_allow_html=True,

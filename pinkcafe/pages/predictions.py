@@ -209,6 +209,20 @@ def _apply_filters(
     return df
 
 
+def _assumptions_expander() -> None:
+    with st.expander("Assumptions & limitations (important)"):
+        st.markdown(
+            """
+- **Daily frequency:** Data is treated as daily totals. Missing calendar days are **filled with 0** so models work on a consistent timeline.
+- **Filters change the meaning:** Forecasts are based on your **current filter view** (selected products + selected days).  
+  For example, forecasting “Mondays only” is valid, but it is forecasting *only the Monday series*, not the full-week business.
+- **Small datasets:** If there isn’t enough history, advanced ML models may fall back to the **heuristic baseline** for stability.
+- **Uncertainty:** Forecasts are estimates. The buffer recommendation uses **model disagreement** as a practical uncertainty signal.
+- **No external drivers:** Models use historical patterns only (no weather, holidays, events, promotions).
+            """
+        )
+
+
 # ----------------------------
 # Page
 # ----------------------------
@@ -297,11 +311,7 @@ def page_predictions_dashboard() -> None:
         for i, prod in enumerate(all_products):
             col = cols[i % 3]
             key = f"flt_prod_{i}_{prod}"
-            checked = col.checkbox(
-                prod,
-                value=(prod in st.session_state.flt_products_selected),
-                key=key,
-            )
+            checked = col.checkbox(prod, value=(prod in st.session_state.flt_products_selected), key=key)
             if checked:
                 selected_now.add(prod)
         st.session_state.flt_products_selected = selected_now
@@ -314,11 +324,7 @@ def page_predictions_dashboard() -> None:
         for i, d in enumerate(days):
             col = cols[i % 4]
             key = f"flt_day_{i}_{d}"
-            checked = col.checkbox(
-                d,
-                value=(d in st.session_state.flt_days_selected),
-                key=key,
-            )
+            checked = col.checkbox(d, value=(d in st.session_state.flt_days_selected), key=key)
             if checked:
                 selected_days_now.add(d)
         st.session_state.flt_days_selected = selected_days_now
@@ -327,12 +333,10 @@ def page_predictions_dashboard() -> None:
     selected_day_names = sorted(st.session_state.flt_days_selected, key=lambda x: day_idx[x])
     selected_day_indexes = [day_idx[d] for d in selected_day_names]
 
-    # Summary line
     prod_summary = "All products" if len(selected_products) == len(all_products) else ", ".join(selected_products)
     day_summary = "All days" if len(selected_day_names) == 7 else ", ".join(selected_day_names)
     st.caption(f"Current filters: {prod_summary} • {day_summary} • {date_start} → {date_end}")
 
-    # Guardrails
     if not selected_products:
         st.warning("No product selected — open Products and tick at least one.")
         return
@@ -380,6 +384,56 @@ def page_predictions_dashboard() -> None:
     # Overview
     # =========================
     with tab_overview:
+        _section("Summary KPIs", "Quick snapshot for your current filters.")
+
+        # Compute “recommended model” for KPI forecast (use 14-day holdout by default)
+        s_kpi = daily_total.copy().sort_index().asfreq("D").fillna(0)
+        kpi_holdout = 14
+        try:
+            _, best_mode_kpi = evaluate_models_time_holdout(s_kpi, kpi_holdout, modes)
+        except Exception:
+            best_mode_kpi = ""
+        chosen_mode_kpi = best_mode_kpi if best_mode_kpi else "AI (Heuristic)"
+
+        # Next 7 days forecast total (KPI)
+        try:
+            pred7, _ = forecast_series_for_mode(s_kpi, 7, chosen_mode_kpi)
+            forecast_next7_total = float(pred7.head(7).sum()) if len(pred7) else 0.0
+        except Exception:
+            forecast_next7_total = 0.0
+
+        last7_total = float(s_kpi.tail(7).sum()) if len(s_kpi) else 0.0
+        avg14 = float(s_kpi.tail(14).mean()) if len(s_kpi) else 0.0
+
+        top_prod = ""
+        if not df_filtered.empty:
+            top_prod = (
+                df_filtered.groupby("product")["units_sold"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(1)
+                .index
+                .tolist()[0]
+            )
+
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            st.metric("Total units (last 7 days)", f"{last7_total:,.0f}")
+        with k2:
+            st.metric("Avg units/day (last 14 days)", f"{avg14:,.1f}")
+        with k3:
+            st.metric("Best-selling product", top_prod if top_prod else "—")
+        with k4:
+            st.metric(
+                "Forecast next 7 days (total)",
+                f"{forecast_next7_total:,.0f}",
+                help=f"Model used: {label_map.get(chosen_mode_kpi, chosen_mode_kpi)}",
+            )
+
+        st.write("")
+        _assumptions_expander()
+
+        st.write("")
         _section("Step 2 — Understand your sales", "Patterns and weekly behaviour (filtered).")
 
         colL, colR = st.columns([3, 2])
@@ -416,6 +470,7 @@ def page_predictions_dashboard() -> None:
     # =========================
     with tab_forecast:
         _section("Forecast settings")
+        _assumptions_expander()
 
         horizon_weeks = st.radio("Forecast horizon", [4, 8], horizontal=True)
         forecast_days = horizon_weeks * 7
@@ -573,6 +628,7 @@ def page_predictions_dashboard() -> None:
     # =========================
     with tab_explain:
         _section("Explain the forecasting", "Plain-English summary of each model.")
+        _assumptions_expander()
         for k, v in mode_help.items():
             st.markdown(f"**{label_map.get(k, k)}**")
             st.write(v)

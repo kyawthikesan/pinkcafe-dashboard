@@ -17,7 +17,9 @@ def page_staff_record_sale() -> None:
         d = st.date_input("Date", value=date.today())
         product = st.radio("Product", products, index=0)
         unit_price = float(price_map[product])
-        st.text_input("Unit price", value=f"£{unit_price:.2f}", disabled=True)
+
+        st.markdown(f"**Unit price:** £{unit_price:.2f}")
+
         qty = st.number_input("Quantity sold", min_value=1, step=1, value=1)
         submitted = st.form_submit_button("Save")
 

@@ -18,11 +18,24 @@ st.set_page_config(page_title=APP_TITLE, layout="wide")
 hide_native_multipage_nav()
 inject_header_gap_fix()
 
+# ----------------------------
+# Session defaults
+# ----------------------------
 if "theme_key" not in st.session_state:
     st.session_state.theme_key = DEFAULT_THEME
 
+if "a11y_text_scale" not in st.session_state:
+    st.session_state.a11y_text_scale = 1.0  # 1.0 = normal
+
+if "a11y_reduced_motion" not in st.session_state:
+    st.session_state.a11y_reduced_motion = False
+
 # Apply theme immediately (login page included)
-apply_theme(st.session_state.theme_key)
+apply_theme(
+    st.session_state.theme_key,
+    text_scale=st.session_state.a11y_text_scale,
+    reduced_motion=st.session_state.a11y_reduced_motion,
+)
 
 if not login_gate():
     st.stop()
@@ -34,6 +47,34 @@ with st.sidebar:
     logout_button()
     st.markdown("---")
 
+    # Accessibility controls
+    with st.expander("Accessibility", expanded=False):
+        st.caption("These settings apply across the whole app.")
+
+        new_scale = st.slider(
+            "Text size",
+            min_value=0.90,
+            max_value=1.50,
+            value=float(st.session_state.a11y_text_scale),
+            step=0.05,
+            help="1.00 = normal. Increase if text feels small.",
+        )
+
+        new_motion = st.checkbox(
+            "Reduce motion (less animation)",
+            value=bool(st.session_state.a11y_reduced_motion),
+        )
+
+        changed = (
+            new_scale != st.session_state.a11y_text_scale
+            or new_motion != st.session_state.a11y_reduced_motion
+        )
+        if changed:
+            st.session_state.a11y_text_scale = float(new_scale)
+            st.session_state.a11y_reduced_motion = bool(new_motion)
+            st.rerun()
+
+    # Navigation
     if st.session_state.role == "admin":
         page = st.radio("Navigation", ["User Management", "Sales Overview", "Sales Records", "Predictions"], index=0)
     elif st.session_state.role == "manager":
