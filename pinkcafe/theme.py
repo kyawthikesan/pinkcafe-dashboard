@@ -313,6 +313,56 @@ def apply_theme(
             color: var(--bp-text) !important;
         }}
 
+        /* Expanders - Fix white background when expanded */
+        div[data-testid="stExpander"] {{
+            background: transparent !important;
+            border: none !important;
+        }}
+        
+        /* Expander header */
+        div[data-testid="stExpander"] .streamlit-expanderHeader,
+        div[data-testid="stExpander"] button[kind="header"] {{
+            background: var(--bp-surface) !important;
+            border: 1px solid var(--bp-border-strong) !important;
+            border-radius: var(--bp-radius-sm) !important;
+            color: var(--bp-text) !important;
+        }}
+        div[data-testid="stExpander"] .streamlit-expanderHeader:hover,
+        div[data-testid="stExpander"] button[kind="header"]:hover {{
+            background: var(--bp-surface-2) !important;
+            border-color: var(--bp-pink) !important;
+        }}
+        
+        /* Expander content - all states */
+        div[data-testid="stExpander"] .streamlit-expanderContent,
+        div[data-testid="stExpander"] details > div:not(summary),
+        div[data-testid="stExpander"] details[open] > div {{
+            background: var(--bp-surface) !important;
+            border: 1px solid var(--bp-border) !important;
+            border-top: none !important;
+            border-radius: 0 0 var(--bp-radius-sm) var(--bp-radius-sm) !important;
+            padding: 16px !important;
+        }}
+        
+        /* All text inside expanders */
+        div[data-testid="stExpander"] p,
+        div[data-testid="stExpander"] li,
+        div[data-testid="stExpander"] span,
+        div[data-testid="stExpander"] div,
+        div[data-testid="stExpander"] label,
+        div[data-testid="stExpander"] .stMarkdown {{
+            color: var(--bp-text-dim) !important;
+            background: transparent !important;
+        }}
+        
+        /* Expander summary/details elements */
+        div[data-testid="stExpander"] details {{
+            background: transparent !important;
+        }}
+        div[data-testid="stExpander"] summary {{
+            background: var(--bp-surface) !important;
+        }}
+
         /* Dataframes */
         .stDataFrame, div[data-testid="stDataFrame"] {{
             border-radius: var(--bp-radius) !important;
