@@ -18,9 +18,8 @@ st.set_page_config(page_title=APP_TITLE, layout="wide")
 hide_native_multipage_nav()
 inject_header_gap_fix()
 
-# ----------------------------
 # Session defaults
-# ----------------------------
+
 if "theme_key" not in st.session_state:
     st.session_state.theme_key = DEFAULT_THEME
 
@@ -57,6 +56,7 @@ with st.sidebar:
             max_value=1.50,
             value=float(st.session_state.a11y_text_scale),
             step=0.05,
+            format="%.2f",
             help="1.00 = normal. Increase if text feels small.",
         )
 
