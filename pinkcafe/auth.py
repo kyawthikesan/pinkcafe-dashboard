@@ -366,13 +366,6 @@ def _inject_login_css() -> None:
             -webkit-text-fill-color: rgba(172, 172, 186, 0.6) !important;
         }
 
-        /* Hide "Press Enter to submit form" */
-        [data-testid="InputInstructions"],
-        div[class*="InputInstructions"] {
-            display: none !important;
-            visibility: hidden !important;
-        }
-
         /* Pink border for the Sign in form box */
         div[data-testid="stForm"] {
             border: 1px solid rgba(255, 105, 180, 0.26) !important;
