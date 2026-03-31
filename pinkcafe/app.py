@@ -6,7 +6,9 @@ from theme import (
     apply_theme,
     hide_native_multipage_nav,
     inject_header_gap_fix,
+    render_accessibility_controls,
 )
+
 from auth import login_gate, logout_button
 from pages.staff import page_staff_record_sale
 from pages.manager import page_manager_sales_overview, page_manager_sales_records
@@ -35,6 +37,41 @@ apply_theme(
     text_scale=st.session_state.a11y_text_scale,
     reduced_motion=st.session_state.a11y_reduced_motion,
 )
+
+if not login_gate():
+    st.stop()
+
+with st.sidebar:
+    st.markdown("### Session")
+    st.write(f"User: **{st.session_state.username}**")
+    st.write(f"Role: **{st.session_state.role}**")
+    logout_button()
+    st.markdown("---")
+
+    # Accessibility controls
+    render_accessibility_controls(prefix="sidebar")
+
+    # Navigation
+    if st.session_state.role == "admin":
+        page = st.radio("Navigation", ["User Management", "Sales Overview", "Sales Records", "Predictions"], index=0)
+    elif st.session_state.role == "manager":
+        page = st.radio("Navigation", ["Sales Overview", "Sales Records", "Predictions"], index=0)
+    else:
+        page = st.radio("Navigation", ["Record Sale", "Predictions"], index=0)
+
+if st.session_state.role == "admin" and page == "User Management":
+    page_admin_user_management()
+elif st.session_state.role in {"admin", "manager"} and page == "Sales Overview":
+    page_manager_sales_overview()
+elif st.session_state.role in {"admin", "manager"} and page == "Sales Records":
+    page_manager_sales_records()
+elif st.session_state.role == "staff" and page == "Record Sale":
+    page_staff_record_sale()
+else:
+    page_predictions_dashboard()
+
+if not PRICE_FILE.exists():
+    st.warning("product_prices.csv was not found and a template should have been created. Please check your folder."))
 
 if not login_gate():
     st.stop()
