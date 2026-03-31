@@ -1,4 +1,3 @@
-# auth.py
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from constants import USERS_FILE
-from theme import theme_options, apply_theme  
+from theme import theme_options, apply_theme, render_accessibility_controls
 
 # Password hashing / verification
 def _pw_hash(password: str, salt: str) -> str:
@@ -33,15 +32,30 @@ def _pw_verify(password: str, stored: str) -> bool:
     except Exception:
         return False
 
+
 # User storage
+
 def ensure_users_file() -> None:
     if USERS_FILE.exists():
         return
+
     default = pd.DataFrame(
         [
-            {"username": "admin", "role": "admin", "pw_hash": _pw_hash("admin123", "salt_admin")},
-            {"username": "manager", "role": "manager", "pw_hash": _pw_hash("manager123", "salt_manager")},
-            {"username": "staff", "role": "staff", "pw_hash": _pw_hash("staff123", "salt_staff")},
+            {
+                "username": "admin",
+                "role": "admin",
+                "pw_hash": _pw_hash("admin123", "salt_admin"),
+            },
+            {
+                "username": "manager",
+                "role": "manager",
+                "pw_hash": _pw_hash("manager123", "salt_manager"),
+            },
+            {
+                "username": "staff",
+                "role": "staff",
+                "pw_hash": _pw_hash("staff123", "salt_staff"),
+            },
         ]
     )
     default.to_csv(USERS_FILE, index=False)
@@ -78,8 +92,10 @@ def get_user_record(username: str) -> dict | None:
     dfu = load_users()
     u = (username or "").strip().lower()
     hit = dfu[dfu["username"] == u]
+
     if hit.empty:
         return None
+
     r = hit.iloc[0].to_dict()
     return {"username": r["username"], "role": r["role"], "pw_hash": r["pw_hash"]}
 
@@ -101,13 +117,18 @@ def create_user(username: str, password: str, role: str) -> tuple[bool, str]:
 
     salt = f"salt_{u}"
     pw_hash = _pw_hash(password, salt)
-    dfu = pd.concat([dfu, pd.DataFrame([{"username": u, "role": role, "pw_hash": pw_hash}])], ignore_index=True)
+
+    dfu = pd.concat(
+        [dfu, pd.DataFrame([{"username": u, "role": role, "pw_hash": pw_hash}])],
+        ignore_index=True,
+    )
     save_users(dfu)
     return True, "User created."
 
 
 def update_password(username: str, new_password: str) -> tuple[bool, str]:
     u = (username or "").strip().lower()
+
     if len(new_password or "") < 6:
         return False, "Password must be at least 6 characters."
 
@@ -125,6 +146,7 @@ def update_password(username: str, new_password: str) -> tuple[bool, str]:
 def update_role(username: str, new_role: str) -> tuple[bool, str]:
     u = (username or "").strip().lower()
     new_role = (new_role or "").strip().lower()
+
     if new_role not in {"admin", "manager", "staff"}:
         return False, "Role must be admin, manager, or staff."
 
@@ -140,12 +162,14 @@ def update_role(username: str, new_role: str) -> tuple[bool, str]:
 
 def delete_user(username: str) -> tuple[bool, str]:
     u = (username or "").strip().lower()
+
     if u == "admin":
         return False, "You can't delete the default admin account."
 
     dfu = load_users()
     before = len(dfu)
     dfu = dfu[dfu["username"] != u].copy()
+
     if len(dfu) == before:
         return False, "User not found."
 
@@ -153,10 +177,12 @@ def delete_user(username: str) -> tuple[bool, str]:
     return True, "User deleted."
 
 # UI styling
+
 def _inject_login_css() -> None:
     st.markdown(
         """
         <style>
+        /* Hide chrome */
         [data-testid="stSidebar"],
         [data-testid="collapsedControl"],
         [data-testid="stHeader"] {
@@ -307,7 +333,7 @@ def _inject_login_css() -> None:
             color: var(--bp-text-mute, #acacba);
         }
 
-        /* Tighten Streamlit's default widget spacing  */
+        /* Tighten Streamlit's default widget spacing */
         div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
             gap: 0 !important;
         }
@@ -316,7 +342,7 @@ def _inject_login_css() -> None:
         .stRadio            { margin-bottom: 0.35rem !important; }
         .stCheckbox         { margin-bottom: 0.2rem  !important; }
 
-        /* Input fields  */
+        /* Input fields */
         div[data-baseweb="input"] > div {
             border-radius: 14px !important;
             background: rgba(255,255,255,0.025) !important;
@@ -376,7 +402,7 @@ def _inject_login_css() -> None:
             font-size: revert !important;
         }
 
-        /* Eye Icon */
+        /* Password: EYE */
         div[data-testid="InputRightElement"] {
             display: flex !important;
             align-items: center !important;
@@ -522,20 +548,17 @@ def _inject_login_css() -> None:
 
 # Auth views
 def login_gate() -> bool:
-    # Session init
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.role = None
 
-    # Theme defaults (pre-login safe)
     if "theme_key" not in st.session_state:
         st.session_state.theme_key = "blackpink_pro"
 
-    # Accessibility defaults (pre-login safe)
     if "a11y_text_scale" not in st.session_state:
         st.session_state.a11y_text_scale = 1.0
-        
+
     if "a11y_reduced_motion" not in st.session_state:
         st.session_state.a11y_reduced_motion = False
 
@@ -624,36 +647,8 @@ def login_gate() -> bool:
             st.error("Invalid username or password.")
 
     # Accessibility controls on login screen
-    with st.expander("Accessibility settings", expanded=False):
-        st.caption("These settings apply immediately.")
-
-        new_scale = st.slider(
-            "Text size",
-            min_value=0.90,
-            max_value=1.50,
-            value=float(st.session_state.a11y_text_scale),
-            step=0.05,
-            format="%.2f",
-        )
-
-        new_motion = st.checkbox(
-            "Reduce motion",
-            value=bool(st.session_state.a11y_reduced_motion),
-        )
-
-        if (
-            new_scale != st.session_state.a11y_text_scale
-            or new_motion != st.session_state.a11y_reduced_motion
-        ):
-            st.session_state.a11y_text_scale = float(new_scale)
-            st.session_state.a11y_reduced_motion = bool(new_motion)
-            apply_theme(
-                st.session_state.theme_key,
-                text_scale=st.session_state.a11y_text_scale,
-                reduced_motion=st.session_state.a11y_reduced_motion,
-            )
-            st.rerun()
-
+    render_accessibility_controls(prefix="login")
+    
     st.markdown(
         """
         <div class="bp-footer">
