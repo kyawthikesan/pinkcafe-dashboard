@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from constants import USERS_FILE
-from theme import theme_options, render_accessibility_controls
+from theme import theme_options, render_accessibility_controls, apply_theme
 
 # Password hashing / verification
 def _pw_hash(password: str, salt: str) -> str:
