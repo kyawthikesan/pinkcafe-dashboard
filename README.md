@@ -1,3 +1,12 @@
+## Project Note
+
+This project was developed as part of a university Systems Development Group Project.
+
+The system is a sales prediction dashboard for Bristol Pink Café, designed to analyse historical café sales data and forecast future product demand using Python, Streamlit, and machine learning techniques.
+
+My contributions included project planning, risk register review, identifying key challenges, sustainability considerations, testing, and presentation preparation.
+
+Original development was completed collaboratively by the project team. The commit history has been preserved for transparency.
 
 ````markdown
 # Bristol Pink Café Dashboard
